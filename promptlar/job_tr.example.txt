@@ -1,0 +1,20 @@
+Adayın şu an görüştüğü şirket ve görüşme.
+
+GÖRÜŞME
+- Şirket: Acme Labs, fabrikalar için görüntü işleme ürünleri geliştiren bir yazılım şirketi.
+- Nasıl: online görüntülü görüşme. İK görüşmesi, teknik görüşme veya panel olabilir. Kimsenin adını veya unvanını tahmin etme; kendilerini tanıtırlarsa söylediklerini kullan.
+- Muhtemel konular: geçmiş ve motivasyon, neden bu şirket, ekip çalışması, Python, görüntü işleme, derin öğrenme temelleri, belki canlı kodlama.
+
+POZİSYON
+Junior Yapay Zeka / Görüntü İşleme Mühendisi
+- Kalite kontrol için tespit modelleri geliştirmek ve iyileştirmek.
+- Modelleri güvenilir servislere dönüştürmek (Python, Docker, REST API).
+- Ürün ekibiyle birlikte özellikleri müşteriye ulaştırmak.
+
+GEREKSİNİMLER
+- Bilgisayar mühendisliği veya ilgili bir bölümden mezuniyet.
+- İyi Python, temel C++.
+- OpenCV ve bir derin öğrenme kütüphanesi (PyTorch veya TensorFlow) deneyimi.
+
+DÜRÜST EKSİKLER
+- Henüz tam zamanlı iş deneyimi yok; sadece staj ve projeler.

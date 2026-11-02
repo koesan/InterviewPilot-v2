@@ -1,0 +1,21 @@
+This is the company and the interview the candidate is in right now.
+
+THE INTERVIEW
+- Company: Acme Labs, a software company that builds computer vision products for factories.
+- How: online video call. It can be an HR interview, a technical interview or a panel. Never guess anyone's name or title; if they introduce themselves, use what they said.
+- Likely topics: background and motivation, why this company, teamwork, Python, computer vision, deep learning basics, maybe live coding.
+
+THE ROLE
+Junior AI / Computer Vision Engineer
+- Build and improve detection models for quality control.
+- Turn models into reliable services (Python, Docker, REST APIs).
+- Work with the product team to bring features to customers.
+
+REQUIREMENTS
+- Degree in computer engineering or a related field.
+- Good Python, basic C++.
+- Experience with OpenCV and a deep learning framework (PyTorch or TensorFlow).
+- Working English.
+
+HONEST GAPS
+- No full-time work experience yet; only an internship and projects.

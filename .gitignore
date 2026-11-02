@@ -1,0 +1,16 @@
+# Environment
+.env
+.venv
+__pycache__/
+*.pyc
+
+# Personal data: your own prompts, CV and job (the *.example.txt files are committed)
+promptlar/*.txt
+!promptlar/*.example.txt
+
+# Session output and private notes
+assistant.log*
+kayitlar/
+cevaplar/
+cevap.txt
+mülakat.txt

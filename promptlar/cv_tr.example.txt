@@ -1,0 +1,21 @@
+İsim: Alex Doe
+Bilgisayar Mühendisi (yapay zeka ve görüntü işleme). Yeni mezun.
+
+ÖZET
+Yapay zeka ve görüntü işleme sistemleri geliştirip bunları çalışan ürünlere dönüştürüyorum. Staj, yarışmalar ve kendi projelerimle bir fikri gerçek bir problemi çözen çalışan bir sisteme kadar götürmeyi öğrendim.
+
+EĞİTİM
+Bilgisayar Mühendisliği Lisans, Örnek Üniversitesi, 2021-2025
+
+YETENEKLER
+Python, C/C++, SQL, Bash, Git, Linux, Docker, FastAPI, PostgreSQL
+PyTorch, OpenCV, YOLO, Scikit-learn, Pandas, ROS
+
+STAJ
+- Bir telekom şirketi, Veri ve Yapay Zeka ekibi (2025 yazı): veri pipeline'ları (ELT, veri modelleme) üzerinde çalıştım, sonuçları PostgreSQL'e kaydeden bir görüntü açıklama servisi geliştirdim.
+
+PROJELER
+- VisionGuard: YOLO ve OpenCV ile üretim hattında gerçek zamanlı hata tespiti, FastAPI ile servis. Ulusal bir hackathonda ödül aldı.
+- RoboScout: odayı haritalayan ve kamerayla bir hedefi takip eden küçük bir ROS robotu.
+- BioScan: PyTorch'ta CNN ile mikroskop görüntülerini sınıflandıran, üniversite destekli bir araştırma projesi.
+- SkyEye: havadan nesneleri tespit edip sayan drone video izleme sistemi.

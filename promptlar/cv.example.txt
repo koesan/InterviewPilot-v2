@@ -1,0 +1,21 @@
+Name: Alex Doe
+Computer Engineer (AI and computer vision). Recent graduate. English: B1.
+
+SUMMARY
+I build AI and computer vision systems and turn them into working products. Through an internship, competitions and my own projects, I learned to take an idea all the way to a working system that solves a real problem.
+
+EDUCATION
+BSc Computer Engineering, Example University, 2021-2025
+
+SKILLS
+Python, C/C++, SQL, Bash, Git, Linux, Docker, FastAPI, PostgreSQL
+PyTorch, OpenCV, YOLO, Scikit-learn, Pandas, ROS
+
+INTERNSHIP
+- A telecom company, Data and AI team (summer 2025): worked on data pipelines (ELT, data modeling) and built an image captioning service that stores results in PostgreSQL.
+
+PROJECTS
+- VisionGuard: real-time defect detection on a production line with YOLO and OpenCV, served with FastAPI. Won a prize at a national hackathon.
+- RoboScout: a small ROS robot that maps a room and follows a target with a camera.
+- BioScan: a university funded research project that classifies microscope images with a CNN in PyTorch.
+- SkyEye: drone video monitoring that detects and counts objects from the air.
