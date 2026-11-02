@@ -10,6 +10,7 @@ QComboBox#langCombo {
     padding: 5px 28px 5px 12px; border: 1px solid #2a303d; border-radius: 8px;
     min-width: 90px;
 }
+QComboBox#langCombo[wide="true"] { min-width: 118px; }
 QComboBox#langCombo:hover { border: 1px solid #3b82f6; }
 QComboBox#langCombo::drop-down {
     subcontrol-origin: padding; subcontrol-position: center right;
@@ -109,3 +110,14 @@ QScrollBar::handle:vertical { background: #2a303d; border-radius: 3px; min-heigh
 QScrollBar::handle:vertical:hover { background: #3a4252; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; height: 0; }
+
+/* ---- screenshot button and preview ---- */
+QPushButton#shotBtn {
+    color: #a9b1bf; background: #171b23; border: 1px solid #262c3a; border-radius: 8px;
+    padding: 6px 12px; font-size: 11pt;
+}
+QPushButton#shotBtn:hover { border: 1px solid #3b82f6; }
+QPushButton#shotBtn[state="armed"] { color: #1a1205; background: #f59e0b; border: 1px solid #fbbf24; }
+QPushButton#shotBtn[state="busy"]  { color: #e7eaf0; background: #1e3a8a; border: 1px solid #3b82f6; }
+QPushButton#shotBtn[state="ready"] { color: #04140b; background: #22c55e; border: 1px solid #4ade80; }
+QLabel#shotPreview { background: #0b0d12; border: 2px solid #22c55e; border-radius: 6px; padding: 3px; }

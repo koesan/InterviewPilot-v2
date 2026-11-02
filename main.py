@@ -58,13 +58,13 @@ def setup_logging() -> None:
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
-def install_unix_signals(app: QApplication, on_toggle: Any) -> QSocketNotifier:
-    """SIGUSR1 toggles (global hotkey via toggle.sh); SIGINT/SIGTERM quit cleanly."""
+def install_unix_signals(app: QApplication, on_toggle: Any, on_shot: Any) -> QSocketNotifier:
+    """SIGUSR1 toggles (toggle.sh), SIGUSR2 takes a screenshot (shot.sh); SIGINT/SIGTERM quit cleanly."""
     rsock, wsock = socket.socketpair()
     rsock.setblocking(False)
     wsock.setblocking(False)
     signal.set_wakeup_fd(wsock.fileno(), warn_on_full_buffer=False)
-    for sig in (signal.SIGUSR1, signal.SIGINT, signal.SIGTERM):
+    for sig in (signal.SIGUSR1, signal.SIGUSR2, signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: None)  # real handling happens in the notifier below
 
     def dispatch() -> None:
@@ -75,6 +75,8 @@ def install_unix_signals(app: QApplication, on_toggle: Any) -> QSocketNotifier:
         for signum in data:
             if signum == signal.SIGUSR1:
                 on_toggle()
+            elif signum == signal.SIGUSR2:
+                on_shot()
             elif signum in (signal.SIGINT, signal.SIGTERM):
                 app.quit()
 
@@ -106,7 +108,7 @@ def main() -> int:
         log.error("style.qss not loaded: %s", exc)
 
     bridge = Bridge()
-    window = MainWindow(bridge)
+    window = MainWindow(bridge, cfg.claude_model if cfg.anthropic_key else "gemini")
 
     runner = AsyncRunner()
     runner.start()
@@ -119,8 +121,11 @@ def main() -> int:
     window.retry_requested.connect(lambda hint: runner.call(core.retry, hint))
     window.language_changed.connect(lambda lang: runner.submit(core.set_language(lang)))
     window.thinking_changed.connect(lambda label: runner.call(core.set_thinking, label))
+    window.model_changed.connect(lambda label: runner.call(core.set_model, label))
     window.translation_toggled.connect(lambda on: runner.call(core.set_translation, on))
-    notifier = install_unix_signals(app, lambda: runner.call(core.toggle))
+    window.screenshot_requested.connect(lambda: runner.call(core.screenshot))
+    window.screenshot_cleared.connect(lambda: runner.call(core.clear_screenshot))
+    notifier = install_unix_signals(app, lambda: runner.call(core.toggle), lambda: runner.call(core.screenshot))
 
     try:
         PID_FILE.write_text(str(os.getpid()))

@@ -18,6 +18,8 @@ class SessionRecord:
         stamp = time.strftime("%Y-%m-%d_%H-%M")
         self.transcript_path = folder / f"{stamp}_transkript.txt"
         self.answers_path = folder / f"{stamp}_cevaplar.txt"
+        self._folder, self._stamp = folder, stamp
+        self._shots = 0
         self._transcript = self._open(self.transcript_path)
         self._answers = self._open(self.answers_path)
 
@@ -42,9 +44,26 @@ class SessionRecord:
     def speech(self, text: str) -> None:
         self._write(self._transcript, f"[{time.strftime('%H:%M:%S')}] {text}\n")
 
-    def answer(self, number: int, question: str, answer: str, provider: str, note: str = "") -> None:
+    def screenshot(self, data: bytes, media_type: str) -> str:
+        """Keep every captured screen in this session's folder; returns 'folder/file' ('' on failure)."""
+        self._shots += 1
+        ext = "jpg" if media_type == "image/jpeg" else "png"
+        folder = self._folder / f"{self._stamp}_ekran"
+        path = folder / f"{self._shots:02d}_{time.strftime('%H-%M-%S')}.{ext}"
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        except OSError as exc:  # a full disk must never stop the interview
+            log.error("ekran görüntüsü kaydedilemedi: %s", exc)
+            return ""
+        return f"{folder.name}/{path.name}"
+
+    def answer(
+        self, number: int, question: str, answer: str, provider: str, note: str = "", screen: str = ""
+    ) -> None:
         stamp = time.strftime("%H:%M:%S")
         head = f"#{number}  {stamp}  {provider}" + (f"  · düzeltme: {note}" if note else "")
+        head += f"  · ekran: {screen}" if screen else ""
         if len(question) > QUESTION_CHARS:
             question = "…" + question[-(QUESTION_CHARS - 1):]
         self._write(self._answers, f"{head}\nSoru: {question}\nCevap: {answer}\n\n")

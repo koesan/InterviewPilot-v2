@@ -50,6 +50,12 @@ CLAUDE_DISABLE_S = 1_800.0          # after auth / billing errors
 WARM_IDLE_S = 30.0                  # re-warm HTTP connection when idle longer
 CACHE_REFRESH_S = 240.0             # prompt cache lives 5 min; refresh it before it expires
 
+# A screenshot sent with the question: the image adds ~1.5-2k input tokens, so the first word comes a little
+# later; a screen task (code, a matrix, a long question) also needs more room to answer.
+SHOT_MAX_TOKENS_CLAUDE = 1_600
+SHOT_EXTRA_WAIT_S = 2.0             # added to the hedge and first-token timeouts when an image is attached
+SHOT_PREVIEW_MS = 10_000            # the thumbnail stays this long once the window is in front
+
 # Thinking modes for the primary model, picked in the UI: label -> (effort, max_tokens, first-token
 # timeout, hedge). Thinking happens before the first visible word, so the timeouts grow with effort;
 # otherwise the no-thinking backup would win the race and the thinking would be wasted.
@@ -60,6 +66,24 @@ THINKING_LEVELS: dict[str, tuple[str | None, int, float, float]] = {
     "Medium": ("medium", 6_000, 30.0, 22.0),
     "High": ("high", 12_000, 50.0, 40.0),
 }
+
+# Answer models picked in the UI: label -> model id ("gemini" = GEMINI_MODEL). Only the picked model gets the
+# request; when it fails (bad key, no credit, overload, no first word in time) the next one in its chain answers.
+GEMINI = "gemini"
+MODEL_CHOICES: dict[str, str] = {
+    "Sonnet 5": "claude-sonnet-5",
+    "Sonnet 5.5": "claude-sonnet-5-5",
+    "Opus 5.5": "claude-opus-5-5",
+    "Haiku 5.5": "claude-haiku-5-5",
+    "Haiku 4.5": "claude-haiku-4-5-20251001",
+    "Gemini": GEMINI,
+}
+# How each model is told not to think (the API differs per model; the default is {"type": "disabled"}).
+THINKING_OFF_PARAMS: dict[str, dict] = {
+    "claude-sonnet-5-5": {"thinking": {"type": "between_tools"}},  # "disabled" is a 400 on Sonnet 5.5
+    "claude-opus-5-5": {"output_config": {"effort": "low"}},       # Opus 5.5 always thinks; low is the least
+}
+NO_ADAPTIVE_THINKING = frozenset({"claude-haiku-4-5-20251001"})    # Haiku 4.5 answers without thinking
 
 # Live translation of the transcript into Turkish of the transcript (separate, cheap model; never blocks answers)
 TRANSLATE_MAX_TOKENS = 800

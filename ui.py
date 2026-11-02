@@ -2,9 +2,18 @@
 answer cards."""
 from __future__ import annotations
 
-from PyQt6.QtCore import QObject, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QKeySequence, QShortcut, QTextBlockFormat, QTextCharFormat, QTextCursor
+from PyQt6.QtCore import QEvent, QObject, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import (
+    QColor,
+    QKeySequence,
+    QPixmap,
+    QShortcut,
+    QTextBlockFormat,
+    QTextCharFormat,
+    QTextCursor,
+)
 from PyQt6.QtWidgets import (
+    QApplication,
     QComboBox,
     QFrame,
     QHBoxLayout,
@@ -14,19 +23,33 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QScrollBar,
+    QSizePolicy,
     QSplitter,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
-from config import THINKING_LEVELS, THINKING_OFF
+from config import MODEL_CHOICES, SHOT_PREVIEW_MS, THINKING_LEVELS, THINKING_OFF
 from languages import DEFAULT_LANGUAGE, LANGUAGES, TRANSLATION_TARGET
 
 NOTICE_MS = 10_000
-FIX_HELP = "Ctrl+E ile yaz  ·  Enter gönderir  ·  son soruyu bu nota göre yeniden cevaplar"
+FIX_HELP = "Ctrl ile yaz  ·  Enter gönderir  ·  son soruyu bu nota göre yeniden cevaplar"
 READY_HELP = "Yazmaya başla, Enter gönderir  ·  boşken Space dinlemeye devam eder"
 TYPING_HELP = "⌨  Space artık boşluk yazar  ·  Enter gönderir, Esc çıkar"
+SHOT_KEY = "Alt"  # left Alt tapped alone; bound globally in Hyprland (binds.lua -> shot.sh)
+SHOT_TEXT = {
+    "idle": f"📷  Ekran · {SHOT_KEY}",
+    "armed": f"📷  {SHOT_KEY} ile al",
+    "busy": "📷  Alınıyor…",
+    "ready": "📷  Ekran hazır ✓",
+}
+SHOT_TIP = (
+    f"Sol {SHOT_KEY} (tek başına) / tıkla: hazırla → paylaşılan ekranın workspace'ine geç → {SHOT_KEY}: o ekranı alır.\n"
+    "Görüntü bir sonraki Space cevabına konuşmayla birlikte eklenir. Yanlışsa tekrar bas, baştan al.\n"
+    "Sağ tık: bekleyen görüntüyü / hazırlığı iptal et."
+)
+PREVIEW_WIDTH = 340
 
 
 class Bridge(QObject):
@@ -47,6 +70,8 @@ class Bridge(QObject):
     answer_failed = pyqtSignal(int, str)
     translation_started = pyqtSignal()
     translation_delta = pyqtSignal(str)
+    screenshot_state = pyqtSignal(str)   # idle / armed / busy / ready
+    screenshot_taken = pyqtSignal(bytes)  # the encoded picture, for the preview
 
 
 def _repolish(widget: QWidget) -> None:
@@ -320,14 +345,64 @@ class TermEdit(QLineEdit):
         self.focus_changed.emit(False)
 
 
+class ShotPreview(QLabel):
+    """The captured screen, small, in the bottom-left corner, so a wrong capture is seen at once.
+
+    The user is on another workspace when it is taken, so the countdown starts only once the
+    window is in front again.
+    """
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setObjectName("shotPreview")
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.hide()
+        self._timer = QTimer(self, singleShot=True, interval=SHOT_PREVIEW_MS)
+        self._timer.timeout.connect(self.hide)
+        self._waiting = False  # shown, but the window was not in front yet
+
+    def show_image(self, data: bytes, window_active: bool) -> None:
+        pixmap = QPixmap()
+        if not pixmap.loadFromData(data):
+            return
+        self.setPixmap(pixmap.scaledToWidth(PREVIEW_WIDTH, Qt.TransformationMode.SmoothTransformation))
+        self.adjustSize()
+        self.place()
+        self.show()
+        self.raise_()
+        self._timer.stop()
+        self._waiting = not window_active
+        if window_active:
+            self._timer.start()
+
+    def window_activated(self) -> None:
+        if self._waiting and self.isVisible():
+            self._waiting = False
+            self._timer.start()
+
+    def dismiss(self) -> None:
+        self._timer.stop()
+        self._waiting = False
+        self.hide()
+
+    def place(self) -> None:
+        parent = self.parentWidget()
+        if parent is not None:
+            self.move(18, parent.height() - self.height() - 18)
+
+
 class MainWindow(QMainWindow):
     toggle_requested = pyqtSignal()
     retry_requested = pyqtSignal(str)   # a term typed on the correction bar
     language_changed = pyqtSignal(str)  # a key of LANGUAGES, e.g. "en"
     thinking_changed = pyqtSignal(str)  # a key of THINKING_LEVELS
+    model_changed = pyqtSignal(str)     # a key of MODEL_CHOICES
     translation_toggled = pyqtSignal(bool)  # translation pane shown or hidden
+    screenshot_requested = pyqtSignal()     # left Alt (via shot.sh) or the button: arm, or capture when armed
+    screenshot_cleared = pyqtSignal()       # right click on the button
 
-    def __init__(self, bridge: Bridge) -> None:
+    def __init__(self, bridge: Bridge, model: str = "claude-sonnet-5") -> None:
         super().__init__()
         self.setWindowTitle("Interview Assistant")
         self.resize(1440, 880)
@@ -335,8 +410,7 @@ class MainWindow(QMainWindow):
         self._status = QLabel()
         self._status.setObjectName("status")
         self._status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        key_hint = QLabel("Space  ·  dinlemeyi durdur / devam et")
-        key_hint.setObjectName("keyHint")
+        self._status.setToolTip("Space: dinlemeyi durdur / devam et")
         self._notice = QLabel()
         self._notice.setObjectName("notice")
         self._notice.setMaximumWidth(460)  # long errors must not widen the window
@@ -356,6 +430,23 @@ class MainWindow(QMainWindow):
         self._lang_combo.setToolTip("Mülakat dili: konuşma tanıma ve cevap bu dilde")
         self._lang_combo.currentIndexChanged.connect(self._on_language)
 
+        model_label = QLabel("Model")
+        model_label.setObjectName("keyHint")
+        self._model_combo = QComboBox()
+        self._model_combo.setObjectName("langCombo")
+        self._model_combo.addItems(list(MODEL_CHOICES))
+        picked = next((k for k, v in MODEL_CHOICES.items() if v == model), None)
+        if picked is not None:
+            self._model_combo.setCurrentText(picked)
+        self._model_combo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._model_combo.setProperty("wide", True)  # room for "Sonnet 5.5"
+        self._model_combo.setToolTip(
+            "Cevabı sadece seçili model verir. Hata verirse (anahtar, kredi, yoğunluk, zaman aşımı) sıradaki\n"
+            "yedek otomatik devreye girer: Claude seçiliyse → Haiku 4.5 → Gemini; Gemini seçiliyse → Sonnet 5 → Haiku 4.5.\n"
+            "Model değişince prompt önbelleği yeni model için bir kez yazılır (~0,03–0,07 $)."
+        )
+        self._model_combo.currentTextChanged.connect(self.model_changed.emit)
+
         think_label = QLabel("Düşünme")
         think_label.setObjectName("keyHint")
         self._think_combo = QComboBox()
@@ -370,31 +461,68 @@ class MainWindow(QMainWindow):
         self._show_en = self._toggle_button("EN", "Transkripti göster / gizle")
         self._show_tr = self._toggle_button("TR", "Türkçe çeviriyi göster / gizle")
 
+        self._shot_btn = QPushButton(SHOT_TEXT["idle"])
+        self._shot_btn.setObjectName("shotBtn")
+        self._shot_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # Space must keep toggling listening
+        self._shot_btn.setToolTip(SHOT_TIP)
+        self._shot_btn.clicked.connect(self.screenshot_requested.emit)
+        self._shot_btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._shot_btn.customContextMenuRequested.connect(lambda _: self.screenshot_cleared.emit())
+
+        # Two rows, so nothing overlaps on a half-screen window: the controls, then the hints, notices
+        # and connection chips. Texts that can grow (notice, chips) are clipped instead of widening the window.
+        self._think_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self._lang_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self._think_combo.setProperty("wide", True)  # style.qss gives it room for "Kapalı (hızlı)"
+        self._notice.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self._notice.setMaximumWidth(16_777_215)
+
         top = QWidget()
         top.setObjectName("topBar")
-        bar = QHBoxLayout(top)
-        bar.setContentsMargins(20, 14, 20, 14)
-        bar.setSpacing(16)
+        # Left: two rows of controls (settings, then panes / screenshot / hints / model in use).
+        # Right corner: LISTENING / PAUSED on top, audio and Deepgram state right under it.
+        cols = QHBoxLayout(top)
+        cols.setContentsMargins(20, 12, 20, 10)
+        cols.setSpacing(18)
+        left = QVBoxLayout()
+        left.setSpacing(8)
+        bar = QHBoxLayout()
+        bar.setSpacing(12)
         bar.addWidget(self._lang_combo)
+        bar.addSpacing(4)
+        bar.addWidget(model_label)
+        bar.addWidget(self._model_combo)
+        bar.addSpacing(4)
         bar.addWidget(think_label)
         bar.addWidget(self._think_combo)
-        bar.addWidget(self._show_en)
-        bar.addWidget(self._show_tr)
-        bar.addWidget(self._status)
-        bar.addWidget(key_hint)
         bar.addStretch(1)
-        bar.addWidget(self._notice)
-        bar.addWidget(self._sound)
-        bar.addWidget(self._stt)
-        bar.addWidget(self._llm)
+        info = QHBoxLayout()
+        info.setSpacing(12)
+        info.addWidget(self._show_en)
+        info.addWidget(self._show_tr)
+        info.addWidget(self._shot_btn)
+        info.addWidget(self._notice, 1)  # the Space hint is on the status tooltip, so notices get this room
+        info.addWidget(self._llm)
+        left.addLayout(bar)
+        left.addLayout(info)
+        right = QVBoxLayout()
+        right.setSpacing(8)
+        right.addWidget(self._status)
+        chips = QHBoxLayout()
+        chips.setSpacing(8)
+        chips.addWidget(self._sound)
+        chips.addWidget(self._stt)
+        right.addLayout(chips)
+        cols.addLayout(left, 1)
+        cols.addLayout(right)
 
         self.term = TermEdit()
         self.term.setObjectName("term")
         self.term.setPlaceholderText("rdap   ·   rdap ile ilgili bir örnek ver   ·   daha kısa cevapla")
         self.term.setMaxLength(200)
-        self.term.setMinimumWidth(520)
+        self.term.setMinimumWidth(320)
         # ClickFocus keeps it out of the tab chain, so Qt never hands it focus on its own:
-        # the box is only entered by clicking it or with Ctrl+E, and Space toggles until then.
+        # the box is only entered by clicking it or with a Ctrl tap, and Space toggles until then.
         self.term.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.term.space_pressed.connect(self.toggle_requested.emit)
         self.term.focus_changed.connect(self._sync_help)
@@ -409,6 +537,7 @@ class MainWindow(QMainWindow):
         fix_label.setObjectName("fixLabel")
         self._fix_help = QLabel(FIX_HELP)
         self._fix_help.setObjectName("fixHelp")
+        self._fix_help.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
 
         fix_bar = QWidget()
         fix_bar.setObjectName("fixBar")
@@ -418,8 +547,7 @@ class MainWindow(QMainWindow):
         fixes.addWidget(fix_label)
         fixes.addWidget(self.term)
         fixes.addWidget(self._fix)
-        fixes.addWidget(self._fix_help)
-        fixes.addStretch(1)
+        fixes.addWidget(self._fix_help, 1)
 
         self.transcript = TranscriptView()
         self.translation = TranslationView()
@@ -451,18 +579,21 @@ class MainWindow(QMainWindow):
         layout.addWidget(fix_bar)
         layout.addWidget(splitter, 1)
         self.setCentralWidget(root)
+        self._preview = ShotPreview(root)
         for w in (self, root, top, fix_bar, splitter, left):
             w.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         # Nothing holds focus at startup, so Space toggles from the moment the app opens.
-        # Ctrl+E puts the cursor in the note box; Enter or Esc gives focus back.
-        focus_note = QShortcut(QKeySequence("Ctrl+E"), self)
-        focus_note.setContext(Qt.ShortcutContext.ApplicationShortcut)
-        focus_note.activated.connect(self.term.setFocus)
+        # Tapping Ctrl alone puts the cursor in the note box; Enter or Esc gives focus back.
+        # Qt shortcuts can't be a lone modifier, so an app-wide filter watches for a bare Ctrl tap.
+        self._ctrl_alone = False
+        QApplication.instance().installEventFilter(self)
 
         shortcut = QShortcut(QKeySequence(Qt.Key.Key_Space), self)
         shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
         shortcut.setAutoRepeat(False)
         shortcut.activated.connect(self.toggle_requested.emit)
+        # The screenshot key (left Alt alone) is a Hyprland bind, so it works on every workspace and here
+        # too; a Qt shortcut as well would count one press twice.
 
         self._notice_timer = QTimer(self, singleShot=True, interval=NOTICE_MS)
         self._notice_timer.timeout.connect(self._notice.clear)
@@ -470,7 +601,7 @@ class MainWindow(QMainWindow):
         bridge.listening_changed.connect(self._set_listening)
         bridge.audio_active.connect(self._set_sound)
         bridge.stt_status.connect(self._set_stt)
-        bridge.provider.connect(lambda name: self._llm.setText(f"LLM: {name}"))
+        bridge.provider.connect(self._set_provider)
         bridge.notice.connect(self.show_notice)
         bridge.interim.connect(self.transcript.set_interim)
         bridge.final.connect(self.transcript.add_final)
@@ -482,6 +613,8 @@ class MainWindow(QMainWindow):
         bridge.answer_failed.connect(self.answers.failed)
         bridge.translation_started.connect(self.translation.start)
         bridge.translation_delta.connect(self.translation.delta)
+        bridge.screenshot_state.connect(self._set_shot_state)
+        bridge.screenshot_taken.connect(lambda data: self._preview.show_image(data, self.isActiveWindow()))
         self._listening = True
         self._set_listening(True)
         self._set_sound(False)
@@ -495,6 +628,41 @@ class MainWindow(QMainWindow):
         button.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # Space must keep toggling listening
         button.setToolTip(tip)
         return button
+
+    def _set_provider(self, name: str) -> None:
+        """Only the model answering now; the backups are in the tooltip, so the chip stays short."""
+        main, _, backups = name.partition(" (yedek: ")
+        self._llm.setText(f"LLM: {main}" + (" +yedek" if backups else ""))
+        self._llm.setToolTip(name)
+
+    def _set_shot_state(self, state: str) -> None:
+        self._shot_btn.setText(SHOT_TEXT.get(state, SHOT_TEXT["idle"]))
+        self._shot_btn.setProperty("state", state)
+        _repolish(self._shot_btn)
+        if state in ("armed", "cleared"):
+            self._preview.dismiss()  # a new capture is coming, or the old one was dropped by hand
+
+    def eventFilter(self, obj, event) -> bool:  # type: ignore[override]
+        """Ctrl pressed and released with nothing else in between = focus the note box (Ctrl+C etc. don't)."""
+        kind = event.type()
+        if kind == QEvent.Type.KeyPress and not event.isAutoRepeat():
+            self._ctrl_alone = event.key() == Qt.Key.Key_Control
+        elif kind == QEvent.Type.KeyRelease and event.key() == Qt.Key.Key_Control and not event.isAutoRepeat():
+            if self._ctrl_alone:
+                self._ctrl_alone = False
+                self.term.setFocus()
+        elif kind in (QEvent.Type.MouseButtonPress, QEvent.Type.Wheel):
+            self._ctrl_alone = False  # Ctrl+click / Ctrl+wheel
+        return False
+
+    def changeEvent(self, event) -> None:  # type: ignore[override]
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
+            self._preview.window_activated()
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        self._preview.place()
 
     def _current_language(self) -> str:
         return self._lang_combo.currentData() or DEFAULT_LANGUAGE
@@ -563,4 +731,5 @@ class MainWindow(QMainWindow):
 
     def show_notice(self, text: str) -> None:
         self._notice.setText(text)
+        self._notice.setToolTip(text)  # a long notice is clipped on a narrow window
         self._notice_timer.start()

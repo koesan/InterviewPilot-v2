@@ -68,14 +68,17 @@ class Conversation:
     def _answered_end(self) -> int:
         return self._answers[-1][0] if self._answers else 0
 
-    def peek(self) -> Candidate | None:
-        """What Space would reply to now, without consuming it."""
+    def peek(self, allow_empty: bool = False) -> Candidate | None:
+        """What Space would reply to now, without consuming it.
+
+        allow_empty: a screenshot is attached, so even no speech or a two-word "solve this" is a request.
+        """
         start = self._pending_start()
         end = len(self._segments)
-        if start == end:
+        if start == end and not allow_empty:
             return None
         pending = " ".join(s.text for s in self._segments[start:end])
-        if len(_normalize(pending).split()) < self._min_words:
+        if len(_normalize(pending).split()) < self._min_words and not allow_empty:
             return None  # noise or "okay"; stays pending and merges into the next speech
         # Speech committed earlier but never answered (a failed answer) still belongs to this reply.
         begin = min(self._answered_end(), start)
@@ -91,14 +94,19 @@ class Conversation:
         for s in self._segments[start:end]:
             s.sent = True
 
-    def record_answer(self, candidate: Candidate, text: str, replace: bool = False) -> None:
-        """Store what was said aloud; a correction replaces the answer to the same speech."""
+    def record_answer(self, candidate: Candidate, text: str, replace: bool = False, append: bool = False) -> None:
+        """Store what was said aloud; a correction replaces the answer to the same speech.
+
+        append: a reply to a screenshot with no new speech follows the previous answer, never replaces it.
+        """
         text = text.strip()
         if not text:
             return
         end = candidate.key[1]
         i = bisect.bisect_left(self._answers, end, key=lambda a: a[0])
         if i < len(self._answers) and self._answers[i][0] == end:
+            if append and not replace:
+                text = f"{self._answers[i][1]} {text}"
             self._answers[i] = (end, text)  # a correction, or a late duplicate for the same speech
         else:
             self._answers.insert(i, (end, text))

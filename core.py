@@ -11,6 +11,7 @@ term, or a direction such as "give an example" - for when the answer missed the 
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 import time
 from array import array
@@ -19,6 +20,7 @@ from typing import Any, Coroutine
 
 from audio import AudioCapture
 from config import (
+    MODEL_CHOICES,
     FINALIZE_WAIT_S,
     HISTORY_MAX_CHARS,
     MIN_QUESTION_WORDS,
@@ -30,6 +32,7 @@ from conversation import Candidate, Conversation
 from languages import LANGUAGES, TRANSLATION_TARGET, display_name
 from llm import AnswerEngine, AnswerError
 from records import SessionRecord
+from screenshot import CaptureError, Shot, capture
 from stt import DeepgramSTT
 from translate import Translator
 
@@ -44,6 +47,7 @@ class _Job:
     candidate: Candidate             # carries the interview history as it was when the job was built
     note: str = ""                   # free text typed on the correction bar (retries only)
     retry: bool = False              # replaces the previous answer instead of following it
+    image: Shot | None = None        # their shared screen, sent with the speech
     task: asyncio.Task[None] | None = None
     chunks: list[str] = field(default_factory=list)
     first_token_at: float | None = None
@@ -68,6 +72,11 @@ class Core:
         self._last_sound = 0.0
         self._sound_active = False
         self._pause_lock = asyncio.Lock()  # rapid Space presses must not interleave
+        # Screenshot: the first left-Alt tap arms, the user switches to the shared screen, the second captures.
+        # The picture waits here and goes with the next Space answer.
+        self._shot: Shot | None = None
+        self._shot_armed = False
+        self._shot_task: asyncio.Task[None] | None = None
         self._conv = Conversation(SPEECH_MAX_CHARS, HISTORY_MAX_CHARS, MIN_QUESTION_WORDS)
         self._engine = AnswerEngine(cfg, on_provider=ui.provider.emit)
         self._record = SessionRecord(RECORDS_DIR)
@@ -96,8 +105,21 @@ class Core:
         self._engine.set_thinking(label)
         if self._engine.primary_ready():
             self._ui.notice.emit(f"Düşünme: {label}")
-        else:  # thinking is a Claude Sonnet setting; the Gemini backup always answers without it
-            self._ui.notice.emit(f"Düşünme: {label} — ama Claude kapalı, Gemini cevaplıyor (düşünme etkisiz)")
+        else:  # Gemini, Haiku 4.5, or a Claude model paused after an error: they answer without thinking
+            self._ui.notice.emit(f"Düşünme: {label} — seçili model şu an düşünmeyi kullanamıyor (etkisiz)")
+
+    def set_model(self, label: str) -> None:
+        """The model picked in the UI answers alone; the chain behind it only takes over on an error."""
+        model = MODEL_CHOICES.get(label)
+        if model is None:
+            return
+        self._engine.set_model(model)
+        if self._engine.selected_model() != model:
+            self._ui.notice.emit(f"{label} için API anahtarı yok (.env)")
+            return
+        self._drop_spec()  # an answer being prepared by the old model is dropped
+        self._engine.warm(self._conv.history())  # write the prompt cache for the new model now
+        self._ui.notice.emit(f"Model: {label}")
 
     def set_translation(self, wanted: bool) -> None:
         """The translation pane was shown or hidden; a hidden pane costs nothing."""
@@ -226,24 +248,77 @@ class Core:
 
     # ---- speculative answers ------------------------------------------------------------
 
+    def _drop_spec(self) -> None:
+        if self._spec is not None and self._spec.answer_id is None:
+            self._spec.task.cancel()  # type: ignore[union-attr]
+            self._spec = None
+
     def _drop_stale_speculation(self) -> None:
         job = self._spec
         if job is not None and job.answer_id is None:
-            current = self._conv.peek()
-            if current is None or current.key != job.candidate.key:
+            current = self._conv.peek(allow_empty=self._shot is not None)
+            if current is None or current.key != job.candidate.key or job.image is not self._shot:
                 job.task.cancel()  # type: ignore[union-attr]
                 self._spec = None
 
     def _speculate(self) -> None:
-        candidate = self._conv.peek()
+        candidate = self._conv.peek(allow_empty=self._shot is not None)
         if candidate is None:
             return
-        if self._spec is not None and self._spec.candidate.key == candidate.key:
-            return  # already generating for exactly this speech
-        if self._spec is not None and self._spec.answer_id is None:
-            self._spec.task.cancel()  # type: ignore[union-attr]
-        log.info("speculating on %r", candidate.question[-80:])
-        self._spec = self._start_job(candidate)
+        spec = self._spec
+        if spec is not None and spec.candidate.key == candidate.key and spec.image is self._shot:
+            return  # already generating for exactly this speech and screen
+        if spec is not None and spec.answer_id is None:
+            spec.task.cancel()  # type: ignore[union-attr]
+        log.info("speculating on %r%s", candidate.question[-80:], " + screen" if self._shot else "")
+        self._spec = self._start_job(candidate, image=self._shot)
+
+    # ---- screenshot (left Alt via Hyprland + shot.sh / button) ---------------------------------------------
+
+    def screenshot(self) -> None:
+        """First press arms, second press captures the monitor in front of the user.
+
+        Called from the Qt thread via call_soon_threadsafe, like toggle().
+        """
+        if self._shot_task is not None and not self._shot_task.done():
+            return  # still capturing
+        if not self._shot_armed:
+            self._shot_armed = True
+            self._set_shot(None)  # a new capture replaces the old (probably wrong) one
+            self._ui.screenshot_state.emit("armed")
+            self._ui.notice.emit("Ekran: paylaşılan ekrana geç, sol Alt'a tekrar bas")
+            return
+        self._shot_armed = False
+        self._ui.screenshot_state.emit("busy")
+        self._shot_task = self._spawn(self._capture())
+
+    async def _capture(self) -> None:
+        try:
+            shot = await capture()
+        except CaptureError as exc:
+            log.error("screenshot failed: %s", exc)
+            self._ui.screenshot_state.emit("idle")
+            self._ui.notice.emit(f"Ekran görüntüsü alınamadı: {exc}")
+            return
+        # Every capture is kept in the session folder, also the wrong ones that are never sent.
+        shot = dataclasses.replace(shot, file=self._record.screenshot(shot.data, shot.media_type))
+        self._set_shot(shot)
+        self._ui.screenshot_taken.emit(shot.data)
+        self._ui.screenshot_state.emit("ready")
+        self._ui.notice.emit("Ekran alındı · Space ile konuşmayla birlikte gider")
+
+    def clear_screenshot(self) -> None:
+        """Right click on the button: drop the waiting picture or cancel the armed capture."""
+        self._shot_armed = False
+        self._set_shot(None)
+        self._ui.screenshot_state.emit("cleared")
+        self._ui.notice.emit("Ekran görüntüsü iptal edildi")
+
+    def _set_shot(self, shot: Shot | None) -> None:
+        self._shot = shot
+        self._drop_stale_speculation()  # an answer prepared without (or with another) screen is stale
+        if shot is not None and self._listening:
+            self._speculate()  # start reading the screen now, so Space is fast
 
     # ---- Space toggle -------------------------------------------------------------------
 
@@ -271,18 +346,23 @@ class Core:
             self._translator.flush()
         self._ui.paragraph_break.emit()
 
-        candidate = self._conv.peek()
+        image = self._shot
+        candidate = self._conv.peek(allow_empty=image is not None)
         if candidate is None:
             return
         self._conv.commit(candidate)
+        if image is not None:  # the screen goes with this answer only; the next one starts clean
+            self._shot = None
+            self._shot_armed = False
+            self._ui.screenshot_state.emit("idle")
         job, self._spec = self._spec, None
         if job is not None and job.answer_id is None:
-            if job.candidate.key == candidate.key:
+            if job.candidate.key == candidate.key and job.image is image:
                 log.info("speculative answer reused")
                 self._show(job, t_pause)
                 return
             job.task.cancel()  # type: ignore[union-attr]
-        job = self._start_job(candidate)
+        job = self._start_job(candidate, image=image)
         self._show(job, t_pause)
 
     # ---- manual term correction (PAUSED only) ---------------------------------------------
@@ -299,16 +379,24 @@ class Core:
             self._ui.notice.emit("Önce Space ile duraklat ve bir cevap al, sonra notu yaz.")
             return
         prev = self._retry
-        if prev is not None and prev.note == note and prev.provider is None and prev.error is None:
+        if (prev is not None and prev.note == note and prev.provider is None and prev.error is None
+                and self._shot is None):
             return  # same correction already streaming (double Enter)
-        log.info("correcting with note %r", note)
-        self._retry = self._start_job(self._last.candidate, note=note, retry=True)
+        # The screen of that answer stays; a picture taken after it (while paused) replaces it.
+        image = self._shot or self._last.image
+        if self._shot is not None:
+            self._shot = None
+            self._ui.screenshot_state.emit("idle")
+        log.info("correcting with note %r%s", note, " + screen" if image else "")
+        self._retry = self._start_job(self._last.candidate, note=note, retry=True, image=image)
         self._show(self._retry, time.monotonic())
 
     # ---- answer jobs --------------------------------------------------------------------
 
-    def _start_job(self, candidate: Candidate, *, note: str = "", retry: bool = False) -> _Job:
-        job = _Job(candidate, note, retry)
+    def _start_job(
+        self, candidate: Candidate, *, note: str = "", retry: bool = False, image: Shot | None = None
+    ) -> _Job:
+        job = _Job(candidate, note, retry, image)
         job.task = self._spawn(self._run_job(job))
         return job
 
@@ -329,7 +417,7 @@ class Core:
         c = job.candidate
         try:
             job.provider = await self._engine.answer(
-                c.question, c.history, on_delta, on_reset, note=job.note
+                c.question, c.history, on_delta, on_reset, note=job.note, image=job.image
             )
         except AnswerError as exc:
             job.error = str(exc)
@@ -342,7 +430,10 @@ class Core:
         job.shown_at = t_pause
         self._last = job
         note = job.note if len(job.note) <= CARD_NOTE_CHARS else job.note[: CARD_NOTE_CHARS - 1] + "…"
-        title = f"{job.candidate.question}  ·  \u21bb {note}" if note else job.candidate.question
+        question = job.candidate.question or "(konuşma yok)"
+        title = f"{question}  ·  \u21bb {note}" if note else question
+        if job.image is not None:
+            title = "\U0001f4f7 " + title
         self._ui.answer_started.emit(job.answer_id, title)
         if job.chunks:
             self._ui.answer_delta.emit(job.answer_id, "".join(job.chunks))
@@ -356,8 +447,9 @@ class Core:
             return
         # Read aloud, so it joins the interview history; a correction replaces the wrong answer.
         text = "".join(job.chunks).strip()
-        self._conv.record_answer(job.candidate, text, replace=job.retry)
-        self._record.answer(job.answer_id, job.candidate.question, text, job.provider or "", job.note)
+        self._conv.record_answer(job.candidate, text, replace=job.retry, append=job.image is not None)
+        screen = job.image.file if job.image is not None else ""
+        self._record.answer(job.answer_id, job.candidate.question, text, job.provider or "", job.note, screen)
         wait = max(0.0, (job.first_token_at or time.monotonic()) - job.shown_at)
         log.info("answer #%d via %s, first token %.2fs after pause", job.answer_id, job.provider, wait)
         self._ui.answer_done.emit(job.answer_id, f"{job.provider} · {'hazırdı' if wait < 0.05 else f'{wait:.1f}s'}")

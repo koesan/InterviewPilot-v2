@@ -3,6 +3,7 @@ in the UI), Haiku 4.5 / Gemini as fast backups."""
 from __future__ import annotations
 
 import asyncio
+import base64
 import functools
 import logging
 import re
@@ -20,18 +21,24 @@ from config import (
     CLAUDE_COOLDOWN_S,
     CLAUDE_DISABLE_S,
     FIRST_TOKEN_TIMEOUT_S,
-    HEDGE_AFTER_S,
+    GEMINI,
     MAX_TOKENS_CLAUDE,
     MAX_TOKENS_GEMINI,
+    MODEL_CHOICES,
+    NO_ADAPTIVE_THINKING,
     REQUEST_TIMEOUT_S,
+    SHOT_EXTRA_WAIT_S,
+    SHOT_MAX_TOKENS_CLAUDE,
     THINKING_LEVELS,
     THINKING_OFF,
+    THINKING_OFF_PARAMS,
     WARM_IDLE_S,
     Config,
     anthropic_headers,
 )
 from conversation import INTERVIEWER, Turn
 from languages import english_name
+from screenshot import Shot
 
 log = logging.getLogger(__name__)
 
@@ -68,7 +75,12 @@ _REMINDER = (
     "sentences under 60 words; tell me about yourself, why us and strengths at most five short sentences, "
     "never over 80 words, naming internships and projects without details. A technical question gets a correct, complete "
     "answer: the direct answer first, then every point a good answer needs, each said once in a short "
-    "sentence, never cut short to save words and never padded. A coding request gets a short spoken analysis (idea, Big O, an edge case), then the "
+    "sentence, never cut short to save words and never padded. How you would build or design a system gets the "
+    "SYSTEM DESIGN answer, plain, clear and never dragged out, every sentence short with one idea: the goal, the data and how "
+    "you collect and label it, the approach against simpler options and why not the other (embeddings, RAG, "
+    "fine-tuning, a classifier or an LLM judge), concrete tool names where they matter, the pipeline, "
+    "evaluation against human labels, production cost, monitoring and feedback, and one risk; never reuse the "
+    "sentences of the example. A coding request gets a short spoken analysis (idea, Big O, an edge case), then the "
     "simplest Python code on its own lines with four-space indentation and no ``` marks. Use what they "
     "already told you, don't repeat an example, a phrase or an opening you used earlier, and don't invent "
     "anything about you beyond <cv>, <job> and this conversation: no anecdote, conflict, failure, number, "
@@ -85,7 +97,12 @@ _REMINDER_TR = (
     "kendinizi anlatın, neden biz ve güçlü yönler en fazla beş kısa cümle, asla 70 kelimeden fazla değil, staj "
     "ve projelerin adı geçer ama ayrıntısı geçmez. Teknik soru doğru ve eksiksiz bir cevap alır: önce doğrudan cevap, "
     "sonra iyi bir cevapta olması gereken her nokta, her biri bir kez ve kısa bir cümleyle; kelime kazanmak "
-    "için asla kısaltma, dolgu da ekleme, cümleleri virgülle uzatma. "
+    "için asla kısaltma, dolgu da ekleme, cümleleri virgülle uzatma. Bir sistemi nasıl kuracağın veya "
+    "tasarlayacağın SİSTEM TASARIMI cevabını alır, sade, net ve uzatmadan, her cümle kısa ve tek fikir: amaç, "
+    "veri ve onu nasıl toplayıp etiketleyeceğin, daha basit seçeneklere karşı yaklaşım ve diğerini neden "
+    "seçmediğin (embedding, RAG, fine-tuning, sınıflandırıcı veya LLM hakem), önemli yerde somut araç adları, "
+    "pipeline, insan etiketlerine karşı değerlendirme, canlı ortamda maliyet, izleme ve geri bildirim, ve bir "
+    "risk; örnekteki cümleleri tekrar kullanma. "
     "Kod isteği önce kısa, konuşur gibi bir analiz (fikir, Big O, bir uç durum), sonra kendi satırlarında, "
     "dört boşluk girintili ve ``` işareti olmadan en basit Python kodunu alır. Söylediklerini kullan, daha "
     "önce kullandığın örneği, ifadeyi veya açılışı tekrarlama, senin hakkında <cv>, <job> ve bu konuşmanın "
@@ -124,10 +141,43 @@ _NOTE_TR = (
 )
 
 
+# Sent only with a screenshot. The image itself goes right before this text in the same message.
+_SCREEN = (
+    "<screen>The image above is the screen they are sharing right now, captured by you, not words they said. "
+    "Read all of it carefully: every word, number, symbol and line of code. Decide from their speech and the "
+    "screen together what they want; if the speech asks for something specific, that wins, and several asks "
+    "are answered in the order they asked. A coding task gets the LIVE CODING reply for exactly the task on "
+    "the screen; copy the given starter code exactly, with its class, method name, parameters and type hints, "
+    "and fill it in. A question or a test item gets its answer, and for multiple choice the option and why. "
+    "A matrix, table or calculation gets one or two sentences of method, then the result, with the numbers "
+    "exactly as on the screen; never read the numbers aloud one by one, a result matrix goes on its own "
+    "lines, one row per line. A "
+    "diagram, an architecture or code to review gets what it does and the point they ask about, like a bug "
+    "or an improvement. If a part is too small to read, use what you can read and don't guess the rest. "
+    "Never mention a screenshot, an image or a capture; if needed, say \"on the screen\".</screen>"
+)
+_SCREEN_TR = (
+    "<ekran>Yukarıdaki görüntü şu an paylaştıkları ekran, onu sen yakaladın; söyledikleri sözler değil. "
+    "Hepsini dikkatle oku: her kelime, sayı, sembol ve kod satırı. Ne istediklerine konuşmaları ve ekran "
+    "birlikte bakarak karar ver; konuşmada belirli bir şey istiyorlarsa o geçerlidir, birden fazla şey "
+    "sordularsa sordukları sırayla cevapla. Kod görevi, tam olarak ekrandaki görev için CANLI KODLAMA cevabını "
+    "alır; ekrandaki başlangıç kodunu sınıfı, metot adı, parametreleri ve tip ipuçlarıyla aynen kopyala ve "
+    "içini doldur. Bir soru veya test sorusu cevabını alır, çoktan seçmelide şık ve nedeni. Bir matris, tablo "
+    "veya hesap bir iki cümlelik yöntem ve sayılar ekrandaki gibi olarak sonucu alır; sayıları tek tek sesli "
+    "okuma, sonuç matrisi kendi satırlarına, her satıra bir sıra yazılır. Bir diyagram, mimari veya incelenecek kod ne yaptığını ve "
+    "sordukları noktayı alır, mesela bir hata veya iyileştirme. Bir kısım okunamayacak kadar küçükse "
+    "okuyabildiğini kullan, gerisini tahmin etme. Ekran görüntüsünden, resimden veya yakalamaktan asla "
+    "bahsetme; gerekirse \"ekranda\" de.</ekran>"
+)
+_NO_SPEECH = "(No new speech since your last reply. They are showing their screen.)"
+_NO_SPEECH_TR = "(Son cevabından beri yeni konuşma yok. Ekranlarını gösteriyorlar.)"
+
+
 @dataclass(frozen=True)
 class _Prompt:
     history: Sequence[Turn]   # earlier exchanges, starting with the interviewer and ending with you
     final: str                # the interviewer's newest speech plus the reminder
+    image: Shot | None = None # their shared screen, sent before the final text
 
 
 StreamFn = Callable[[_Prompt, Callable[[str], None]], Awaitable[None]]
@@ -168,9 +218,12 @@ def _language_rule(lang: str) -> str:
 
 
 def build_final_message(
-    question: str, history: Sequence[Turn] = (), note: str = "", lang: str = "en", think: bool = False
+    question: str, history: Sequence[Turn] = (), note: str = "", lang: str = "en", think: bool = False,
+    screen: bool = False,
 ) -> str:
-    text = question
+    text = question.strip() or (_NO_SPEECH_TR if lang == "tr" else _NO_SPEECH)
+    if screen:
+        text += "\n\n" + (_SCREEN_TR if lang == "tr" else _SCREEN)
     note_tpl = _NOTE_TR if lang == "tr" else _NOTE
     if lang not in ("en", "tr"):
         note_tpl = note_tpl.replace("spoken English", f"spoken {english_name(lang)}")
@@ -191,7 +244,7 @@ def build_final_message(
     return f"{text}\n\n<{tag}>{reminder}</{tag}>"
 
 
-def claude_messages(history: Sequence[Turn], final: str) -> list[dict]:
+def claude_messages(history: Sequence[Turn], final: str, image: Shot | None = None) -> list[dict]:
     """The interview as a real dialogue; the cache breakpoint sits on the last turn already said.
 
     That prefix is identical for every request until the next answer, so speculative requests and the
@@ -203,25 +256,33 @@ def claude_messages(history: Sequence[Turn], final: str) -> list[dict]:
     if msgs:
         last = msgs[-1]
         last["content"] = [{"type": "text", "text": last["content"], "cache_control": {"type": "ephemeral"}}]
-    msgs.append({"role": "user", "content": final})
+    if image is None:
+        msgs.append({"role": "user", "content": final})
+    else:  # after the cache breakpoint: the image is paid once, at full price, and never cached
+        source = {"type": "base64", "media_type": image.media_type, "data": base64.standard_b64encode(image.data).decode()}
+        msgs.append({"role": "user", "content": [{"type": "image", "source": source}, {"type": "text", "text": final}]})
     return msgs
 
 
-def gemini_contents(history: Sequence[Turn], final: str) -> list[types.Content]:
+def gemini_contents(history: Sequence[Turn], final: str, image: Shot | None = None) -> list[types.Content]:
     contents = [
         types.Content(role="user" if t.role == INTERVIEWER else "model", parts=[types.Part(text=t.text)])
         for t in history
     ]
-    contents.append(types.Content(role="user", parts=[types.Part(text=final)]))
+    parts = [types.Part(text=final)]
+    if image is not None:
+        parts.insert(0, types.Part.from_bytes(data=image.data, mime_type=image.media_type))
+    contents.append(types.Content(role="user", parts=parts))
     return contents
 
 
 class AnswerEngine:
-    """Streams answers from the primary Claude model, with a fast backup raced only when needed.
+    """Streams answers from the model picked in the UI; the backups answer only if it fails.
 
-    Order: primary Claude model (Sonnet 5) -> backup Claude model (Haiku 4.5) -> Gemini.
-    The next provider starts only if the current one fails or has not produced a token
-    after HEDGE_AFTER_S, so a normal answer costs exactly one request.
+    Chain: the picked model -> the fast Claude backup (Haiku 4.5) -> Gemini; with Gemini picked:
+    Gemini -> Sonnet 5 -> Haiku 4.5. The request goes to the picked model alone. Only if it fails
+    (bad key, no credit, overload, no first word within the timeout) does the next one get it,
+    so a normal answer costs exactly one request.
     """
 
     def __init__(self, cfg: Config, on_provider: Callable[[str], None]) -> None:
@@ -257,9 +318,11 @@ class AnswerEngine:
                 http_client=_claude_http_client(),
                 default_headers=anthropic_headers(cfg),
             )
-            self._claude_models = [m for m in (cfg.claude_model, cfg.claude_backup_model) if m]
-            self._claude_models = list(dict.fromkeys(self._claude_models))  # drop duplicates
+            # every Claude model that can be picked: a key error blocks them all at once
+            known = [cfg.claude_model, cfg.claude_backup_model, *MODEL_CHOICES.values()]
+            self._claude_models = list(dict.fromkeys(m for m in known if m and m != GEMINI))
         self._blocked_until: dict[str, float] = {}
+        self._chain: list[str] = []
 
         self._gemini: genai.Client | None = None
         self._gemini_model = cfg.gemini_model
@@ -270,6 +333,25 @@ class AnswerEngine:
             )
         self._gemini_thinking = 0
         self._gemini_config = self._make_gemini_config()
+        self.set_model(cfg.claude_model if self._claude is not None else GEMINI)
+
+    def set_model(self, model: str) -> None:
+        """Pick the model that answers; the rest of the chain is only a fallback."""
+        backup = self._cfg.claude_backup_model or "claude-haiku-4-5-20251001"
+        if model == GEMINI:
+            chain = [GEMINI, self._cfg.claude_model or "claude-sonnet-5", backup]
+        else:
+            chain = [model, backup, GEMINI]
+        chain = [m for m in dict.fromkeys(chain) if (self._gemini if m == GEMINI else self._claude) is not None]
+        if chain == self._chain:
+            return
+        self._chain = chain
+        self._cache_used_at = 0.0  # the cache belongs to one model: write it for the new one on the next warm()
+        log.info("answer chain -> %s", " -> ".join(_label(m) for m in chain))
+        self._emit_provider()
+
+    def selected_model(self) -> str:
+        return self._chain[0] if self._chain else ""
 
     @staticmethod
     def _build_system(prompt_text: str, job_text: str, cv_text: str, fallback: str = "") -> str:
@@ -304,19 +386,27 @@ class AnswerEngine:
         log.info("primary thinking -> %s", label)
 
     def primary_ready(self) -> bool:
-        """The primary Claude model can answer now (thinking settings only apply to it)."""
-        ready = self._claude_ready()
-        return bool(ready) and ready[0] == self._claude_models[0]
+        """The picked model is a Claude model that can think and is usable now (thinking applies only to it)."""
+        ready = self._ready_chain()
+        return bool(ready) and ready[0] == self.selected_model() != GEMINI and ready[0] not in NO_ADAPTIVE_THINKING
 
     def _level(self) -> tuple[str | None, int, float, float]:
         return THINKING_LEVELS[self._thinking]
 
     def _claude_params(self, model: str) -> dict:
-        """Thinking settings: only the primary model thinks; the backups always answer at once."""
-        effort = self._level()[0] if model == self._claude_models[0] else None
+        """Thinking settings: only the picked model thinks; the backups always answer at once.
+
+        Each model is switched off its own way (THINKING_OFF_PARAMS); Opus 5.5 can't be, so it runs at low effort.
+        """
+        effort = self._level()[0] if model == self.selected_model() and model not in NO_ADAPTIVE_THINKING else None
         if effort is None:
-            return {"thinking": {"type": "disabled"}}
+            return dict(THINKING_OFF_PARAMS.get(model, {"thinking": {"type": "disabled"}}))
         return {"thinking": {"type": "adaptive"}, "output_config": {"effort": effort}}
+
+    @staticmethod
+    def _thinks(params: dict) -> bool:
+        """Thinking happens before the first visible word (Opus 5.5 always thinks: no "thinking" key)."""
+        return params.get("thinking", {}).get("type") in ("adaptive", None)
 
     def _make_gemini_config(self) -> types.GenerateContentConfig:
         if self._gemini_model.startswith("gemini-2.5"):
@@ -336,13 +426,17 @@ class AnswerEngine:
     def _available(self, model: str) -> bool:
         return time.monotonic() >= self._blocked_until.get(model, 0.0)
 
-    def _claude_ready(self) -> list[str]:
-        return [m for m in self._claude_models if self._available(m)] if self._claude else []
+    def _ready_chain(self) -> list[str]:
+        """The chain without models that are paused after an error (Gemini is never paused)."""
+        return [m for m in self._chain if m == GEMINI or self._available(m)]
+
+    def _primary_claude(self) -> str | None:
+        """The picked model, if it is a Claude model that can be used right now (for cache and warm-up)."""
+        ready = self._ready_chain()
+        return ready[0] if ready and ready[0] == self.selected_model() != GEMINI else None
 
     def active_provider(self) -> str:
-        ready = [_label(m) for m in self._claude_ready()]
-        if self._gemini is not None:
-            ready.append("Gemini")
+        ready = [_label(m) for m in self._ready_chain()]
         if not ready:
             return "LLM yok"
         return ready[0] + (f" (yedek: {', '.join(ready[1:])})" if len(ready) > 1 else "")
@@ -379,9 +473,11 @@ class AnswerEngine:
     async def check(self) -> list[str]:
         """Validate keys/models once at startup (also opens the HTTPS connections)."""
         problems: list[str] = []
-        for i, model in enumerate(self._claude_models):
+        for model in self._chain:
+            if model == GEMINI:
+                continue
             try:
-                if i == 0:
+                if model == self.selected_model():
                     await self._prewarm(model)  # the first answer then reads the prompt from cache
                 else:
                     await self._claude.models.retrieve(model)  # type: ignore[union-attr]
@@ -405,14 +501,14 @@ class AnswerEngine:
         Refreshes the prompt cache (rules, CV and the interview so far) if it is about to expire,
         otherwise just keeps the HTTPS connection open (free), so the answer itself starts fast.
         """
-        ready = self._claude_ready()
-        if not ready or ready[0] != self._claude_models[0]:
+        primary = self._primary_claude()
+        if primary is None:
             return
         now = time.monotonic()
         if now - self._cache_used_at > CACHE_REFRESH_S:
-            coro = self._prewarm(ready[0], history)
+            coro = self._prewarm(primary, history)
         elif now - self._last_activity > WARM_IDLE_S:
-            coro = self._claude.models.retrieve(ready[0])  # type: ignore[union-attr]
+            coro = self._claude.models.retrieve(primary)  # type: ignore[union-attr]
         else:
             return
         self._last_activity = now
@@ -452,128 +548,65 @@ class AnswerEngine:
         on_delta: Callable[[str], None],
         on_reset: Callable[[], None],
         note: str = "",
+        image: Shot | None = None,
     ) -> str:
         """Stream an answer and return the label of the provider that produced it."""
         thinks = self._level()[0] is not None and self.primary_ready()
-        prompt = _Prompt(tuple(history), build_final_message(question, history, note, lang=self._lang, think=thinks))
+        final = build_final_message(question, history, note, lang=self._lang, think=thinks, screen=image is not None)
+        prompt = _Prompt(tuple(history), final, image)
         self._last_activity = time.monotonic()
         self._emit_provider()  # e.g. back to the primary model after a cooldown
-
-        providers: list[tuple[str, str | None, StreamFn]] = [
-            (_label(m), m, functools.partial(self._stream_claude, m)) for m in self._claude_ready()
-        ]
-        if self._gemini is not None:
-            providers.append(("Gemini", None, self._stream_gemini))
-        if not providers:
-            raise AnswerError("Kullanılabilir model yok (anahtarları kontrol et)")
-
-        winner: str | None = None
-        got_token = asyncio.Event()
-        tasks: dict[str, asyncio.Task[None]] = {}
         failures: dict[str, BaseException] = {}
-
-        def deliver_for(label: str) -> Callable[[str], None]:
-            def deliver(text: str) -> None:
-                nonlocal winner
-                if winner is None:
-                    winner = label
-                    got_token.set()
-                    for other, task in tasks.items():
-                        if other != label:
-                            task.cancel()  # the slower request is dropped immediately
-                if winner == label:
-                    on_delta(text)
-
-            return deliver
-
-        async def attempt(label: str, model: str | None, stream: StreamFn, sink: Callable[[str], None]) -> None:
+        tried = 0
+        for model in self._ready_chain():
+            if model != GEMINI and not self._available(model):
+                continue  # paused by the previous attempt, e.g. a key error blocks every Claude model
+            label = _label(model)
+            stream: StreamFn = self._stream_gemini if model == GEMINI else functools.partial(self._stream_claude, model)
+            if tried:
+                log.info("falling back to %s", label)
+            tried += 1
             try:
-                await stream(prompt, sink)
+                await stream(prompt, on_delta)
+                return label
             except asyncio.CancelledError:
                 raise
-            except Exception as exc:  # noqa: BLE001 - recorded, the next provider takes over
+            except Exception as exc:  # noqa: BLE001 - recorded, the next model in the chain takes over
                 cause = exc.__cause__ if isinstance(exc, _StreamReset) and exc.__cause__ else exc
                 failures[label] = cause
                 log.warning("%s failed: %r", label, cause)
-                if model is not None:
+                if model != GEMINI:
                     self._classify_claude_error(model, cause)
-
-        def launch(label: str, model: str | None, stream: StreamFn, sink: Callable[[str], None] | None = None) -> None:
-            coro = attempt(label, model, stream, sink or deliver_for(label))
-            tasks[label] = asyncio.get_running_loop().create_task(coro)
-
-        def usable(model: str | None) -> bool:
-            return model is None or self._available(model)  # skip a model that just hit a limit
-
-        backups = providers[1:]
-        # A thinking primary is silent while it thinks, so the backup waits longer before racing it.
-        primary_thinks = bool(self._claude_ready()) and self._claude_ready()[0] == self._claude_models[0]
-        hedge_after = self._level()[3] if primary_thinks else HEDGE_AFTER_S
-        launch(*providers[0])
-        try:
-            while winner is None:
-                running = [t for t in tasks.values() if not t.done()]
-                if not running:
-                    while backups and not usable(backups[0][1]):
-                        backups.pop(0)
-                    if not backups:
-                        break
-                    launch(*backups.pop(0))  # the current provider failed: next one right away
-                    continue
-                token_wait = asyncio.get_running_loop().create_task(got_token.wait())
-                try:
-                    done, _ = await asyncio.wait(
-                        [*running, token_wait],
-                        timeout=hedge_after if backups else None,
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
-                finally:
-                    token_wait.cancel()  # also when this answer is cancelled, so no waiter is left pending
-                if not done:
-                    while backups and not usable(backups[0][1]):
-                        backups.pop(0)
-                    if backups:
-                        log.info("no token after %.1fs, racing %s", hedge_after, backups[0][0])
-                        launch(*backups.pop(0))
-
-            if winner is not None:
-                await tasks[winner]
-                if winner not in failures:
-                    return winner
-                on_reset()  # the winner broke mid-stream: try the others one by one
-                for label, model, stream in providers:
-                    if label in failures or label == winner or not usable(model):
-                        continue
-                    launch(label, model, stream, on_delta)
-                    await tasks[label]
-                    if label not in failures:
-                        return label
-                    on_reset()
-        finally:
-            for task in tasks.values():
-                task.cancel()
+                if isinstance(exc, _StreamReset):
+                    on_reset()  # it broke mid-answer: clear the partial text before the next model writes
+        if not tried:
+            raise AnswerError("Kullanılabilir model yok (anahtarları kontrol et)")
 
         last = next(reversed(failures.values()), None)
         raise AnswerError(f"Cevap alınamadı: {_short(last)}")
 
     async def _stream_claude(self, model: str, prompt: _Prompt, on_delta: Callable[[str], None]) -> None:
         assert self._claude is not None
-        if model == self._claude_models[0]:
+        if model == self.selected_model():
             self._cache_used_at = time.monotonic()  # cache lifetime counts from request start
         emitted = False
         params = self._claude_params(model)
-        if "output_config" in params:  # thinking: more room and time before the first visible word
-            _, max_tokens, first_token_s, _ = self._level()
+        if self._thinks(params):  # thinking: more room and time before the first visible word
+            level = self._level() if self._level()[0] is not None else THINKING_LEVELS["Low"]  # Opus 5.5 "off"
+            _, max_tokens, first_token_s, _ = level
             client = self._claude.with_options(timeout=first_token_s + REQUEST_TIMEOUT_S)
         else:
             max_tokens, first_token_s, client = MAX_TOKENS_CLAUDE, FIRST_TOKEN_TIMEOUT_S, self._claude
+        if prompt.image is not None:
+            max_tokens = max(max_tokens, SHOT_MAX_TOKENS_CLAUDE)
+            first_token_s += SHOT_EXTRA_WAIT_S
         try:
             async with asyncio.timeout(first_token_s) as deadline:
                 async with client.messages.stream(
                     model=model,
                     max_tokens=max_tokens,
                     system=self._claude_system,
-                    messages=claude_messages(prompt.history, prompt.final),
+                    messages=claude_messages(prompt.history, prompt.final, prompt.image),
                     **params,  # off by default: Sonnet 5 thinks unless told not to, and speed matters
                 ) as stream:
                     async for text in stream.text_stream:
@@ -612,10 +645,11 @@ class AnswerEngine:
         assert self._gemini is not None
         emitted = False
         try:
-            async with asyncio.timeout(FIRST_TOKEN_TIMEOUT_S + 3) as deadline:
+            extra = SHOT_EXTRA_WAIT_S if prompt.image is not None else 0.0
+            async with asyncio.timeout(FIRST_TOKEN_TIMEOUT_S + 3 + extra) as deadline:
                 stream = await self._gemini.aio.models.generate_content_stream(
                     model=self._gemini_model,
-                    contents=gemini_contents(prompt.history, prompt.final),
+                    contents=gemini_contents(prompt.history, prompt.final, prompt.image),
                     config=self._gemini_config,
                 )
                 async for chunk in stream:

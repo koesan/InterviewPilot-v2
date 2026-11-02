@@ -23,7 +23,10 @@ In the demo, an English interview clip is played, the question *"Tell me somethi
 ### Features
 
 - **Live transcription:** captures system audio (Teams, Zoom, Meet, browser, any app) with Deepgram Nova-3 streaming. Your microphone is never recorded.
-- **Instant answers:** Claude streams the reply; the answer is usually prepared while the interviewer is still finishing, so it can appear the moment you press Space. Automatic fallback to a faster Claude model and Gemini.
+- **Instant answers:** Claude streams the reply; the answer is usually prepared while the interviewer is still finishing, so it can appear the moment you press Space.
+- **Model picker:** choose the answer model in the top bar (Claude Sonnet 5 / 5.5, Opus 5.5, Haiku 5.5 / 4.5 or Gemini). The request goes only to the picked model; if it fails (bad key, no credit, overload, timeout), the next model in the chain answers automatically.
+- **Screen capture:** tap **left Alt** (or the 📷 button) to arm, switch to the workspace with the shared screen, tap left Alt again: that screen is captured, shown as a small preview for 10 seconds, and sent with the speech on your next Space. Coding tasks get code (with the starter code kept), questions get answers, matrices and calculations get the method and the result.
+- **System design answers:** "how would you build a system that…" questions get a structured, engineer-level answer: goal, data and labeling, approach versus simpler options, pipeline, evaluation, production and risk, in plain spoken sentences.
 - **10 interview languages:** English, Turkish, Mandarin Chinese, Hindi, Spanish, French, Arabic, Bengali, Portuguese and Russian. Speech recognition and answers switch together.
 - **Live Turkish translation** of the interviewer's speech in a separate pane, without slowing the answers.
 - **Interview memory:** the whole conversation is sent as a dialogue, so the model keeps context and does not repeat examples. Prompts are cached to cut cost.
@@ -36,6 +39,7 @@ In the demo, an English interview clip is played, the question *"Tell me somethi
 - Linux with PulseAudio or PipeWire (`parec` from `pulseaudio-utils` / `pipewire-pulse`)
 - Python 3.11+
 - API keys (see below)
+- For screen capture: a wlroots-based Wayland compositor such as Hyprland or Sway, with `grim` (`hyprctl` is used to pick the focused monitor on Hyprland)
 
 ### Installation
 
@@ -86,9 +90,9 @@ Optional settings in `.env`:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `CLAUDE_MODEL` | `claude-sonnet-5` | Main answer model |
-| `CLAUDE_BACKUP_MODEL` | `claude-haiku-4-5-20251001` | Fast backup (`none` to disable) |
-| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Last fallback |
+| `CLAUDE_MODEL` | `claude-sonnet-5` | Model selected in the **Model** menu at start |
+| `CLAUDE_BACKUP_MODEL` | `claude-haiku-4-5-20251001` | First backup when the picked model fails (`none` to disable) |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Gemini model (last backup, or the main one when picked) |
 | `TRANSLATE_MODEL` | `claude-haiku-5-5` | Translation model |
 | `DEEPGRAM_MODEL` | `nova-3` | Speech-to-text model |
 | `AUDIO_SOURCE` | `@DEFAULT_MONITOR@` | Audio source (`pactl list short sources`) |
@@ -100,15 +104,18 @@ Optional settings in `.env`:
 2. Select the interview language from the top-left menu. **EN / TR** buttons show or hide the transcript and the translation panes.
 3. When the interviewer finishes a question, press **Space**. The answer appears on the right and listening pauses. Read it aloud.
 4. Press **Space** again to continue listening.
-5. If an answer misses the point, press **Ctrl+E**, type a note (Turkish or English, e.g. a misheard word or "shorter") and press **Enter**. A new answer to the same question appears.
-6. Pick a **thinking** level for harder questions; the first word comes later but the answer is more careful.
+5. If an answer misses the point, tap **Ctrl** (alone), type a note (Turkish or English, e.g. a misheard word or "shorter") and press **Enter**. A new answer to the same question appears.
+6. Pick a **thinking** level for harder questions; the first word comes later but the answer is more careful. It applies to the picked Claude model only (Haiku 4.5 and Gemini don't think; Opus 5.5 always thinks a little).
+7. Pick the answer **Model**. Fallback chain: picked Claude model → Haiku 4.5 → Gemini; with Gemini picked: Gemini → Sonnet 5 → Haiku 4.5. A key or credit error skips all Claude models at once. Switching models writes the prompt cache once for the new model.
+8. **Screen capture:** tap left Alt (the button turns orange), switch to the shared screen's workspace, tap left Alt again. The button turns green and a preview shows bottom-left for 10 s once you are back in the app. Wrong capture? Tap left Alt again and retake; right-click the button to cancel. Press **Space** and the screen goes with the speech; it also works with no speech at all. The image is used for that answer and its corrections only.
 
 Each answer card shows the model and the time from Space to the first word ("hazırdı" means it was prepared in advance).
 
-Space works only while the app window is focused. For a global hotkey, bind `toggle.sh` in your window manager, e.g. in Hyprland:
+Space works only while the app window is focused. For global hotkeys, bind the scripts in your window manager. `shot.sh` (screen capture) must be global, because you press it on another workspace. Hyprland example; `bindr` on `ALT_L` fires only when left Alt is tapped alone, not for Alt+Tab or AltGr:
 
 ```
-bind = , F8, exec, /path/to/InterviewPilot-v2/toggle.sh
+bind  = , F8, exec, /path/to/InterviewPilot-v2/toggle.sh
+bindr = ALT, ALT_L, exec, /path/to/InterviewPilot-v2/shot.sh
 ```
 
 ### Records
@@ -116,7 +123,8 @@ bind = , F8, exec, /path/to/InterviewPilot-v2/toggle.sh
 Every session is saved to the `kayitlar/` folder, line by line while you talk, so nothing is lost even if the app crashes:
 
 - `YYYY-MM-DD_HH-MM_transkript.txt`: everything the interviewer said, with timestamps, and where you asked for an answer.
-- `YYYY-MM-DD_HH-MM_cevaplar.txt`: every answer with its number, time, model, correction note and question.
+- `YYYY-MM-DD_HH-MM_cevaplar.txt`: every answer with its number, time, model, correction note, question and the screenshot it used.
+- `YYYY-MM-DD_HH-MM_ekran/`: every screen capture of the session, wrong ones included.
 
 The folder is empty in the repository; your records are git-ignored. The app log is written to `assistant.log`.
 
@@ -133,8 +141,10 @@ The folder is empty in the repository; your records are git-ignored. The app log
 | `conversation.py` | Interview history |
 | `languages.py` | Supported languages |
 | `ui.py`, `style.qss` | Interface and dark theme |
-| `records.py` | Session transcript and answer records |
-| `config.py` | Settings and tunables |
+| `records.py` | Session transcript, answer and screenshot records |
+| `screenshot.py` | Screen capture with `grim`, scaled for the models |
+| `toggle.sh`, `shot.sh` | Global hotkeys: listen / pause, screen capture |
+| `config.py` | Settings, model list and tunables |
 
 ### Tests
 
@@ -162,7 +172,10 @@ Demoda İngilizce bir mülakat videosu oynatılır, *"Tell me something about yo
 ### Özellikler
 
 - **Canlı transkript:** Sistem sesini (Teams, Zoom, Meet, tarayıcı, her uygulama) Deepgram Nova-3 ile anlık yazıya döker. Mikrofonunuz kaydedilmez.
-- **Anında cevap:** Claude cevabı akış halinde yazar; cevap çoğu zaman görüşmeci konuşmasını bitirirken hazırlanır, Space'e bastığınız anda görünür. Daha hızlı bir Claude modeline ve Gemini'ye otomatik geçiş.
+- **Anında cevap:** Claude cevabı akış halinde yazar; cevap çoğu zaman görüşmeci konuşmasını bitirirken hazırlanır, Space'e bastığınız anda görünür.
+- **Model seçimi:** Cevap modelini üst bardan seçin (Claude Sonnet 5 / 5.5, Opus 5.5, Haiku 5.5 / 4.5 veya Gemini). İstek sadece seçili modele gider; hata verirse (anahtar, kredi, yoğunluk, zaman aşımı) sıradaki model otomatik cevaplar.
+- **Ekran görüntüsü:** **Sol Alt**'a tek başına basın (veya 📷 düğmesi), paylaşılan ekranın olduğu workspace'e geçin, sol Alt'a tekrar basın: o ekran alınır, 10 saniye küçük önizleme olarak görünür ve bir sonraki Space'te konuşmayla birlikte gider. Kod görevi kod (başlangıç kodu korunarak), soru cevap, matris ve hesap yöntem + sonuç alır.
+- **Sistem tasarımı cevapları:** "şunu yapan bir sistemi nasıl kurarsınız" sorularına mühendis seviyesinde, düzenli cevap: amaç, veri ve etiketleme, basit seçeneklere karşı yaklaşım, pipeline, değerlendirme, canlı ortam ve risk; sade konuşma cümleleriyle.
 - **10 mülakat dili:** İngilizce, Türkçe, Çince (Mandarin), Hintçe, İspanyolca, Fransızca, Arapça, Bengalce, Portekizce ve Rusça. Konuşma tanıma ve cevap dili birlikte değişir.
 - **Canlı Türkçe çeviri:** Görüşmecinin konuşması ayrı bir bölmede Türkçeye çevrilir, cevapları yavaşlatmaz.
 - **Mülakat hafızası:** Tüm görüşme diyalog olarak modele gider; bağlam korunur, aynı örnek tekrar kullanılmaz. Maliyeti düşürmek için prompt önbelleğe alınır.
@@ -175,6 +188,7 @@ Demoda İngilizce bir mülakat videosu oynatılır, *"Tell me something about yo
 - PulseAudio veya PipeWire kullanan Linux (`parec`: `pulseaudio-utils` / `pipewire-pulse`)
 - Python 3.11+
 - API anahtarları (aşağıda)
+- Ekran görüntüsü için: Hyprland veya Sway gibi wlroots tabanlı bir Wayland ortamı ve `grim` (Hyprland'de odaklı monitör `hyprctl` ile bulunur)
 
 ### Kurulum
 
@@ -225,9 +239,9 @@ cp prompt.example.txt prompt.txt  # cevap tarzı ve kurallar (isteğe bağlı)
 
 | Değişken | Varsayılan | Amaç |
 |---|---|---|
-| `CLAUDE_MODEL` | `claude-sonnet-5` | Ana cevap modeli |
-| `CLAUDE_BACKUP_MODEL` | `claude-haiku-4-5-20251001` | Hızlı yedek (`none` = kapalı) |
-| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Son yedek |
+| `CLAUDE_MODEL` | `claude-sonnet-5` | Açılışta **Model** menüsünde seçili model |
+| `CLAUDE_BACKUP_MODEL` | `claude-haiku-4-5-20251001` | Seçili model hata verince ilk yedek (`none` = kapalı) |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Gemini modeli (son yedek ya da seçilirse ana model) |
 | `TRANSLATE_MODEL` | `claude-haiku-5-5` | Çeviri modeli |
 | `DEEPGRAM_MODEL` | `nova-3` | Konuşma tanıma modeli |
 | `AUDIO_SOURCE` | `@DEFAULT_MONITOR@` | Ses kaynağı (`pactl list short sources`) |
@@ -239,15 +253,18 @@ cp prompt.example.txt prompt.txt  # cevap tarzı ve kurallar (isteğe bağlı)
 2. Sol üstteki menüden mülakat dilini seçin. **EN / TR** düğmeleri transkript ve çeviri bölmelerini açıp kapatır.
 3. Görüşmeci sorusunu bitirince **Space**'e basın. Cevap sağda belirir ve dinleme duraklar. Cevabı sesli okuyun.
 4. Dinlemeye devam etmek için tekrar **Space**'e basın.
-5. Cevap amacı kaçırırsa **Ctrl+E** ile not yazın (Türkçe veya İngilizce; yanlış duyulan bir kelime ya da "daha kısa" gibi) ve **Enter**'a basın. Aynı soruya yeni bir cevap gelir.
-6. Zor sorular için **Düşünme** seviyesi seçin; ilk kelime daha geç gelir ama cevap daha özenli olur.
+5. Cevap amacı kaçırırsa tek başına **Ctrl**'ye basıp not yazın (Türkçe veya İngilizce; yanlış duyulan bir kelime ya da "daha kısa" gibi) ve **Enter**'a basın. Aynı soruya yeni bir cevap gelir.
+6. Zor sorular için **Düşünme** seviyesi seçin; ilk kelime daha geç gelir ama cevap daha özenli olur. Sadece seçili Claude modeline uygulanır (Haiku 4.5 ve Gemini düşünmez; Opus 5.5 her zaman biraz düşünür).
+7. Cevap **Model**'ini seçin. Yedek sırası: seçili Claude modeli → Haiku 4.5 → Gemini; Gemini seçiliyse: Gemini → Sonnet 5 → Haiku 4.5. Anahtar veya kredi hatasında tüm Claude modelleri birden atlanır. Model değişince prompt önbelleği yeni model için bir kez yazılır.
+8. **Ekran görüntüsü:** Sol Alt'a basın (düğme turuncu olur), paylaşılan ekranın workspace'ine geçin, sol Alt'a tekrar basın. Düğme yeşil olur, uygulamaya döndüğünüzde sol altta 10 sn önizleme görünür. Yanlışsa sol Alt'a tekrar basıp yeniden alın; düğmeye sağ tık iptal eder. **Space**'e basınca ekran konuşmayla birlikte gider; konuşma hiç olmasa da çalışır. Görüntü sadece o cevap ve onun düzeltmeleri için kullanılır.
 
 Her cevap kartında model ve Space'ten ilk kelimeye kadar geçen süre yazar ("hazırdı" = önceden hazırlanmış).
 
-Space yalnızca uygulama penceresi aktifken çalışır. Global kısayol için `toggle.sh`'ı pencere yöneticinize bağlayın, örneğin Hyprland'de:
+Space yalnızca uygulama penceresi aktifken çalışır. Global kısayollar için betikleri pencere yöneticinize bağlayın. `shot.sh` (ekran görüntüsü) global olmalı, çünkü başka bir workspace'te basılır. Hyprland örneği; `ALT_L` üzerindeki `bindr` sadece sol Alt tek başına basılınca çalışır, Alt+Tab veya AltGr'de çalışmaz:
 
 ```
-bind = , F8, exec, /path/to/InterviewPilot-v2/toggle.sh
+bind  = , F8, exec, /path/to/InterviewPilot-v2/toggle.sh
+bindr = ALT, ALT_L, exec, /path/to/InterviewPilot-v2/shot.sh
 ```
 
 ### Kayıtlar
@@ -255,7 +272,8 @@ bind = , F8, exec, /path/to/InterviewPilot-v2/toggle.sh
 Her oturum `kayitlar/` klasörüne, konuşma sürerken satır satır kaydedilir; uygulama çökse bile o ana kadarki kayıt kalır:
 
 - `YYYY-AA-GG_SS-DD_transkript.txt`: görüşmecinin söylediği her şey saatiyle ve cevap istediğiniz yerler.
-- `YYYY-AA-GG_SS-DD_cevaplar.txt`: her cevap; numarası, saati, modeli, düzeltme notu ve sorusuyla.
+- `YYYY-AA-GG_SS-DD_cevaplar.txt`: her cevap; numarası, saati, modeli, düzeltme notu, sorusu ve kullandığı ekran görüntüsüyle.
+- `YYYY-AA-GG_SS-DD_ekran/`: oturumdaki tüm ekran görüntüleri, yanlış alınanlar dahil.
 
 Klasör repoda boştur; kendi kayıtlarınız git'e eklenmez. Uygulama logu `assistant.log` dosyasına yazılır.
 
@@ -272,8 +290,10 @@ Klasör repoda boştur; kendi kayıtlarınız git'e eklenmez. Uygulama logu `ass
 | `conversation.py` | Mülakat geçmişi |
 | `languages.py` | Desteklenen diller |
 | `ui.py`, `style.qss` | Arayüz ve koyu tema |
-| `records.py` | Oturum transkript ve cevap kayıtları |
-| `config.py` | Ayarlar |
+| `records.py` | Oturum transkript, cevap ve ekran görüntüsü kayıtları |
+| `screenshot.py` | `grim` ile ekran görüntüsü, modeller için boyutlandırılmış |
+| `toggle.sh`, `shot.sh` | Global kısayollar: dinle / durdur, ekran görüntüsü |
+| `config.py` | Ayarlar, model listesi |
 
 ### Testler
 
