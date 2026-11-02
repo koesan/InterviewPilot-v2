@@ -30,7 +30,7 @@ In the demo, an English interview clip is played, the question *"Tell me somethi
 - **10 interview languages:** English, Turkish, Mandarin Chinese, Hindi, Spanish, French, Arabic, Bengali, Portuguese and Russian. Speech recognition and answers switch together.
 - **Live Turkish translation** of the interviewer's speech in a separate pane, without slowing the answers.
 - **Interview memory:** the whole conversation is sent as a dialogue, so the model keeps context and does not repeat examples. Prompts are cached to cut cost.
-- **Correction bar:** type a note (e.g. a misheard term or "shorter") and get a new answer to the same question.
+- **Correction bar:** type a note (e.g. a misheard term or "shorter") and get a new answer to the same question. The model sees the replies you rejected, so it does not give the same wrong reading again.
 - **Thinking modes:** off (fastest) or low / medium / high reasoning for harder questions.
 - **Session records:** every conversation and every answer is saved to the `kayitlar/` folder.
 
@@ -179,7 +179,7 @@ Demoda İngilizce bir mülakat videosu oynatılır, *"Tell me something about yo
 - **10 mülakat dili:** İngilizce, Türkçe, Çince (Mandarin), Hintçe, İspanyolca, Fransızca, Arapça, Bengalce, Portekizce ve Rusça. Konuşma tanıma ve cevap dili birlikte değişir.
 - **Canlı Türkçe çeviri:** Görüşmecinin konuşması ayrı bir bölmede Türkçeye çevrilir, cevapları yavaşlatmaz.
 - **Mülakat hafızası:** Tüm görüşme diyalog olarak modele gider; bağlam korunur, aynı örnek tekrar kullanılmaz. Maliyeti düşürmek için prompt önbelleğe alınır.
-- **Not çubuğu:** Yanlış duyulan bir terimi veya "daha kısa" gibi bir notu yazın, aynı soruya yeni cevap alın.
+- **Not çubuğu:** Yanlış duyulan bir terimi veya "daha kısa" gibi bir notu yazın, aynı soruya yeni cevap alın. Model reddettiğiniz cevapları görür, aynı yanlış yorumu tekrar vermez.
 - **Düşünme modları:** Kapalı (en hızlı) veya zor sorular için low / medium / high.
 - **Oturum kayıtları:** Tüm konuşmalar ve cevaplar `kayitlar/` klasörüne kaydedilir.
 

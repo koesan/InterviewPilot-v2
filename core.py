@@ -40,6 +40,8 @@ log = logging.getLogger(__name__)
 
 SOUND_PEAK = 300  # s16 peak above ~-40 dBFS counts as "audio playing"
 CARD_NOTE_CHARS = 48  # the note shown on the answer card, so the question stays readable
+REJECTED_KEPT = 3     # earlier wrong replies to the same question, shown to the model on a correction
+REJECTED_CHARS = 240  # their opening is enough to show which reading was wrong
 
 
 @dataclass
@@ -48,6 +50,7 @@ class _Job:
     note: str = ""                   # free text typed on the correction bar (retries only)
     retry: bool = False              # replaces the previous answer instead of following it
     image: Shot | None = None        # their shared screen, sent with the speech
+    rejected: tuple[str, ...] = ()   # replies to this question the candidate corrected (retries only)
     task: asyncio.Task[None] | None = None
     chunks: list[str] = field(default_factory=list)
     first_token_at: float | None = None
@@ -388,15 +391,21 @@ class Core:
             self._shot = None
             self._ui.screenshot_state.emit("idle")
         log.info("correcting with note %r%s", note, " + screen" if image else "")
-        self._retry = self._start_job(self._last.candidate, note=note, retry=True, image=image)
+        # The reply on screen was wrong: the model must see it, or it gives the same reading again.
+        wrong = " ".join("".join(self._last.chunks).split())[:REJECTED_CHARS]
+        rejected = (*self._last.rejected, wrong)[-REJECTED_KEPT:] if wrong else self._last.rejected
+        self._retry = self._start_job(
+            self._last.candidate, note=note, retry=True, image=image, rejected=rejected
+        )
         self._show(self._retry, time.monotonic())
 
     # ---- answer jobs --------------------------------------------------------------------
 
     def _start_job(
-        self, candidate: Candidate, *, note: str = "", retry: bool = False, image: Shot | None = None
+        self, candidate: Candidate, *, note: str = "", retry: bool = False, image: Shot | None = None,
+        rejected: tuple[str, ...] = (),
     ) -> _Job:
-        job = _Job(candidate, note, retry, image)
+        job = _Job(candidate, note, retry, image, rejected)
         job.task = self._spawn(self._run_job(job))
         return job
 
@@ -417,7 +426,8 @@ class Core:
         c = job.candidate
         try:
             job.provider = await self._engine.answer(
-                c.question, c.history, on_delta, on_reset, note=job.note, image=job.image
+                c.question, c.history, on_delta, on_reset, note=job.note, image=job.image,
+                rejected=job.rejected,
             )
         except AnswerError as exc:
             job.error = str(exc)

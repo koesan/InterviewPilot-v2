@@ -73,19 +73,21 @@ _REMINDER = (
     "sentences, without retelling it and without an example from <cv>. A greeting or a check gets a few words. "
     "A question about you or your opinion gets the answer first and one concrete fact, in two to four short "
     "sentences under 60 words; tell me about yourself, why us and strengths at most five short sentences, "
-    "never over 80 words, naming internships and projects without details. A technical question gets a correct, complete "
-    "answer: the direct answer first, then every point a good answer needs, each said once in a short "
-    "sentence, never cut short to save words and never padded. How you would build or design a system gets the "
-    "SYSTEM DESIGN answer, plain, clear and never dragged out, every sentence short with one idea: the goal, the data and how "
-    "you collect and label it, the approach against simpler options and why not the other (embeddings, RAG, "
-    "fine-tuning, a classifier or an LLM judge), concrete tool names where they matter, the pipeline, "
-    "evaluation against human labels, production cost, monitoring and feedback, and one risk; never reuse the "
-    "sentences of the example. A coding request gets a short spoken analysis (idea, Big O, an edge case), then the "
+    "never over 80 words, naming internships and projects without details. A technical question gets a correct, solution-focused "
+    "answer: the direct answer first, then only the points that matter, each said once in a short sentence, "
+    "usually 40 to 80 words, no intro and no background. How you would approach or handle something gets your decision "
+    "first, then two or three steps, about 40 to 70 words. How you would build or design a system gets the "
+    "SYSTEM DESIGN answer, about 80 to 120 words: the first sentence is already the architecture with concrete "
+    "parts, never a framing or a restated problem; then the data and labeling, why this over the simpler "
+    "option, the pipeline with tool names, and how you evaluate it against human labels; production or a risk "
+    "only if their case needs it, in one short clause. Every sentence short with one idea, no purpose tails "
+    "like \"so that…\" or \"to lower cost\", no labels, never reuse the sentences of the example. A coding request gets a short spoken analysis (idea, Big O, an edge case), then the "
     "simplest Python code on its own lines with four-space indentation and no ``` marks. Use what they "
     "already told you, don't repeat an example, a phrase or an opening you used earlier, and don't invent "
     "anything about you beyond <cv>, <job> and this conversation: no anecdote, conflict, failure, number, "
     "district or result that <cv> does not state, and never say you have no conflict or failure to tell; "
-    "say how you handle it. Sound like the candidate in <cv> talking: easy B1 sentences in one "
+    "say how you handle it. Give a reason only for the main choice, never end with a \"So, …\" summary. "
+    "Sound like the candidate in <cv> talking: easy B1 sentences in one "
     "paragraph, except code, only the words they say."
 )
 
@@ -95,19 +97,21 @@ _REMINDER_TR = (
     "özetlemeden ve <cv>'den örnek vermeden. Selamlaşma veya kontrol birkaç kelime alır. Senin hakkında bir "
     "soru veya fikir sorusu önce cevap ve tek bir somut bilgiyle iki ila dört kısa cümle alır, 50 kelimenin altında; "
     "kendinizi anlatın, neden biz ve güçlü yönler en fazla beş kısa cümle, asla 70 kelimeden fazla değil, staj "
-    "ve projelerin adı geçer ama ayrıntısı geçmez. Teknik soru doğru ve eksiksiz bir cevap alır: önce doğrudan cevap, "
-    "sonra iyi bir cevapta olması gereken her nokta, her biri bir kez ve kısa bir cümleyle; kelime kazanmak "
-    "için asla kısaltma, dolgu da ekleme, cümleleri virgülle uzatma. Bir sistemi nasıl kuracağın veya "
-    "tasarlayacağın SİSTEM TASARIMI cevabını alır, sade, net ve uzatmadan, her cümle kısa ve tek fikir: amaç, "
-    "veri ve onu nasıl toplayıp etiketleyeceğin, daha basit seçeneklere karşı yaklaşım ve diğerini neden "
-    "seçmediğin (embedding, RAG, fine-tuning, sınıflandırıcı veya LLM hakem), önemli yerde somut araç adları, "
-    "pipeline, insan etiketlerine karşı değerlendirme, canlı ortamda maliyet, izleme ve geri bildirim, ve bir "
-    "risk; örnekteki cümleleri tekrar kullanma. "
+    "ve projelerin adı geçer ama ayrıntısı geçmez. Teknik soru doğru ve çözüm odaklı bir cevap alır: önce doğrudan cevap, "
+    "sonra sadece önemli noktalar, her biri bir kez ve kısa bir cümleyle, genelde 35 ila 70 kelime, giriş ve arka plan "
+    "yok, dolgu yok, cümleleri virgülle uzatma. Bir duruma nasıl yaklaşacağın önce kararını, sonra iki üç "
+    "adımı alır, yaklaşık 35 ila 60 kelime. Bir sistemi nasıl kuracağın veya "
+    "tasarlayacağın SİSTEM TASARIMI cevabını alır, yaklaşık 70 ila 100 kelime: ilk cümle zaten somut "
+    "parçalarıyla mimaridir, giriş veya problemi tekrar yok; sonra veri ve etiketleme, daha basit seçeneğe "
+    "karşı neden bu, araç adlarıyla pipeline ve insan etiketlerine karşı değerlendirme; canlı ortam veya risk "
+    "sadece durumu gerektiriyorsa, kısa bir yan cümleyle. Her cümle kısa ve tek fikir, \"… diye\", \"… için\" "
+    "gibi amaç ekleri ve \"yani\" yok, başlık başlık sayma yok, örnekteki cümleleri tekrar kullanma. "
     "Kod isteği önce kısa, konuşur gibi bir analiz (fikir, Big O, bir uç durum), sonra kendi satırlarında, "
     "dört boşluk girintili ve ``` işareti olmadan en basit Python kodunu alır. Söylediklerini kullan, daha "
     "önce kullandığın örneği, ifadeyi veya açılışı tekrarlama, senin hakkında <cv>, <job> ve bu konuşmanın "
     "dışında bir şey uydurma: <cv>'de yazmayan anekdot, anlaşmazlık, başarısızlık, sayı, semt veya sonuç yok; "
     "anlaşmazlık veya başarısızlık örneğin olmadığını da asla söyleme, nasıl davrandığını anlat. "
+    "Sadece ana tercihin sebebini söyle, asla \"Yani…\" diye özetle bitirme. "
     "Konuşmanın kesik gelmesini asla yorumlama. <cv>'deki aday konuşuyormuş gibi doğal, sade Türkçe, görüşmeciye "
     "\"siz\" diye, kod hariç tek paragraf, sadece söyleyeceği kelimeler."
 )
@@ -122,22 +126,37 @@ _NOTE = (
     "<note_from_you>You typed this by hand on the correction bar, because the reply you just gave was wrong "
     "or missed the point. Nobody said it out loud. It may be in Turkish or English; understand it either way "
     "and still reply in spoken English.\n"
-    "Note: {note}\n"
-    "It outranks the speech above. It can be a word the speech-to-text garbled, like \"rdap\", and then that "
-    "word is what they asked about. Or it can be a direction, like \"rdap ile ilgili bir örnek ver\" (give an "
-    "example about RDAP) or \"daha kısa\" (shorter), and then you do exactly that. Don't repeat the previous "
-    "reply, and never read out, translate or mention the note, the transcript or a hearing problem.</note_from_you>"
+    "Note: {note}\n{rejected}"
+    "It outranks the speech above. It can be the word the speech-to-text garbled, like \"rdap\": then that "
+    "exact word is what they asked about. Take it as written and never swap it for a better-known word that "
+    "looks or sounds alike. A hint next to it, like \"ai model\" or \"kütüphane\", tells you its kind: pick "
+    "the real term of that kind that is closest to the word. If you are not "
+    "sure such a term exists and what it does, never describe it from its name; say in one sentence that you haven't used it and explain the closest thing you know; "
+    "never invent what it does. The note can also be a direction, like \"rdap ile ilgili bir örnek ver\" (give "
+    "an example about RDAP) or \"daha kısa\" (shorter), and then you do exactly that. Never give the same "
+    "topic or reading as a wrong reply again, and never read out, translate or mention the note, the "
+    "transcript or a hearing problem. Never say what they meant or didn't mean, like \"you mean X\" or "
+    "\"I understand you don't mean Y\"; start straight with the answer about the right term.</note_from_you>"
 )
+
+_WRONG = "Your earlier reply, which was wrong: \"{reply}\"\n"
+_WRONG_TR = "Yanlış olan önceki cevabın: \"{reply}\"\n"
 
 _NOTE_TR = (
     "<senin_notun>Bunu düzeltme çubuğuna elle yazdın, çünkü az önce verdiğin cevap yanlıştı "
     "veya amacı kaçırdı. Kimse bunu sesli söylemedi. Türkçe veya İngilizce olabilir; her iki şekilde de anla "
     "ve yine Türkçe konuşarak cevap ver.\n"
-    "Not: {note}\n"
-    "Yukarıdaki konuşmayı geçersiz kılar. Konuşma tanımanın bozduğu bir kelime olabilir, mesela \"rdap\", o zaman "
-    "sordukları kelime odur. Veya bir yönlendirme olabilir, mesela \"rdap ile ilgili bir örnek ver\" veya "
-    "\"daha kısa\", o zaman tam olarak bunu yap. Önceki cevabı tekrarlama; notu, transkripti "
-    "veya duyma sorununu asla okuma, çevirme veya bunlardan bahsetme.</senin_notun>"
+    "Not: {note}\n{rejected}"
+    "Yukarıdaki konuşmayı geçersiz kılar. Konuşma tanımanın bozduğu kelime olabilir, mesela \"rdap\": o zaman "
+    "sordukları tam olarak o kelimedir. Yazıldığı gibi al, ona benzeyen veya benzer okunan daha bilinen bir "
+    "kelimeyle asla değiştirme. Yanındaki bir ipucu, mesela \"ai model\" veya \"kütüphane\", türünü söyler: o "
+    "türde kelimeye en yakın gerçek terimi seç. Böyle bir terimin "
+    "var olduğundan ve ne yaptığından emin değilsen adından tahmin ederek asla anlatma; tek cümleyle kullanmadığını söyle ve bildiğin en yakın şeyi anlat; ne yaptığını asla uydurma. "
+    "Not bir yönlendirme de olabilir, mesela \"rdap ile ilgili bir örnek ver\" veya \"daha kısa\", o zaman "
+    "tam olarak bunu yap. Yanlış bir cevabın konusunu veya yorumunu asla tekrar verme; notu, transkripti "
+    "veya duyma sorununu asla okuma, çevirme veya bunlardan bahsetme. \"X'i mi kastettiniz\", "
+    "\"Y'yi kastetmediğinizi anlıyorum\" gibi ne kastettiklerini asla söyleme; doğrudan doğru terimle ilgili "
+    "cevapla başla.</senin_notun>"
 )
 
 
@@ -149,11 +168,14 @@ _SCREEN = (
     "are answered in the order they asked. A coding task gets the LIVE CODING reply for exactly the task on "
     "the screen; copy the given starter code exactly, with its class, method name, parameters and type hints, "
     "and fill it in. A question or a test item gets its answer, and for multiple choice the option and why. "
-    "A matrix, table or calculation gets one or two sentences of method, then the result, with the numbers "
-    "exactly as on the screen; never read the numbers aloud one by one, a result matrix goes on its own "
-    "lines, one row per line. A "
+    "A matrix, table or calculation: first compare the matrices on the screen cell by cell and note the row "
+    "and column of every non-zero number, since one 1 among zeros is the whole point. Then the answer starts "
+    "with one short line saying where the non-zero numbers are in each matrix, as row and column, then "
+    "the result: the matrix they ask for written out, one row per line like "
+    "[0 0 0 1 0], with the numbers exactly right. After it, at most one short sentence of how, like which "
+    "side it multiplies from. Never describe the matrix in words or read the numbers one by one. A "
     "diagram, an architecture or code to review gets what it does and the point they ask about, like a bug "
-    "or an improvement. If a part is too small to read, use what you can read and don't guess the rest. "
+    "or an improvement. Anything else they ask you to write or draw is shown, not described. If a part is too small to read, use what you can read and don't guess the rest. "
     "Never mention a screenshot, an image or a capture; if needed, say \"on the screen\".</screen>"
 )
 _SCREEN_TR = (
@@ -163,9 +185,14 @@ _SCREEN_TR = (
     "sordularsa sordukları sırayla cevapla. Kod görevi, tam olarak ekrandaki görev için CANLI KODLAMA cevabını "
     "alır; ekrandaki başlangıç kodunu sınıfı, metot adı, parametreleri ve tip ipuçlarıyla aynen kopyala ve "
     "içini doldur. Bir soru veya test sorusu cevabını alır, çoktan seçmelide şık ve nedeni. Bir matris, tablo "
-    "veya hesap bir iki cümlelik yöntem ve sayılar ekrandaki gibi olarak sonucu alır; sayıları tek tek sesli "
-    "okuma, sonuç matrisi kendi satırlarına, her satıra bir sıra yazılır. Bir diyagram, mimari veya incelenecek kod ne yaptığını ve "
-    "sordukları noktayı alır, mesela bir hata veya iyileştirme. Bir kısım okunamayacak kadar küçükse "
+    "veya hesap: önce ekrandaki matrisleri hücre hücre karşılaştır ve sıfır olmayan her sayının satır ve "
+    "sütununu not et, çünkü sıfırlar arasındaki tek bir 1 bütün meseledir. Sonra cevap girişsiz, doğrudan "
+    "sonuçla başlar: önce her matriste sıfır olmayan sayıların yerini satır ve sütun olarak söyleyen tek "
+    "kısa bir satır, sonra istedikleri matris yazılır, her satıra bir sıra, mesela [0 0 0 1 0], sayılar tam "
+    "doğru. Ardından en fazla bir kısa cümleyle nasıl, mesela hangi taraftan çarpıldığı. Matrisi asla "
+    "kelimelerle anlatma, sayıları tek tek okuma. Bir diyagram, mimari veya incelenecek kod ne yaptığını ve "
+    "sordukları noktayı alır, mesela bir hata veya iyileştirme. Yazmanı veya çizmeni istedikleri başka bir şey "
+    "anlatılmaz, gösterilir. Bir kısım okunamayacak kadar küçükse "
     "okuyabildiğini kullan, gerisini tahmin etme. Ekran görüntüsünden, resimden veya yakalamaktan asla "
     "bahsetme; gerekirse \"ekranda\" de.</ekran>"
 )
@@ -219,7 +246,7 @@ def _language_rule(lang: str) -> str:
 
 def build_final_message(
     question: str, history: Sequence[Turn] = (), note: str = "", lang: str = "en", think: bool = False,
-    screen: bool = False,
+    screen: bool = False, rejected: Sequence[str] = (),
 ) -> str:
     text = question.strip() or (_NO_SPEECH_TR if lang == "tr" else _NO_SPEECH)
     if screen:
@@ -228,7 +255,10 @@ def build_final_message(
     if lang not in ("en", "tr"):
         note_tpl = note_tpl.replace("spoken English", f"spoken {english_name(lang)}")
     if note := note.strip():
-        text += "\n\n" + note_tpl.format(note=note)
+        wrong = "".join(
+            (_WRONG_TR if lang == "tr" else _WRONG).format(reply=r) for r in rejected if r.strip()
+        )
+        text += "\n\n" + note_tpl.format(note=note, rejected=wrong)
     reminder = _REMINDER_TR if lang == "tr" else _REMINDER
     if think:  # adaptive thinking skips short chat turns unless asked to think
         reminder += _THINK_TR if lang == "tr" else _THINK
@@ -549,10 +579,13 @@ class AnswerEngine:
         on_reset: Callable[[], None],
         note: str = "",
         image: Shot | None = None,
+        rejected: Sequence[str] = (),
     ) -> str:
         """Stream an answer and return the label of the provider that produced it."""
         thinks = self._level()[0] is not None and self.primary_ready()
-        final = build_final_message(question, history, note, lang=self._lang, think=thinks, screen=image is not None)
+        final = build_final_message(
+            question, history, note, lang=self._lang, think=thinks, screen=image is not None, rejected=rejected
+        )
         prompt = _Prompt(tuple(history), final, image)
         self._last_activity = time.monotonic()
         self._emit_provider()  # e.g. back to the primary model after a cooldown
