@@ -10,7 +10,8 @@ promptlar/*.txt
 
 # Session output and private notes
 assistant.log*
-kayitlar/
+kayitlar/*
+!kayitlar/.gitkeep
 cevaplar/
 cevap.txt
 mülakat.txt
